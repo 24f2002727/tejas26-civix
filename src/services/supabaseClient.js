@@ -88,7 +88,7 @@ export const testSupabaseConnection = async (customUrl = null, customKey = null)
 
     if (error) {
       // If table doesn't exist yet, it's connected but schema not run
-      if (error.code === '42P01') {
+      if (error.code === '42P01' || error.code === 'PGRST205' || (error.message && error.message.includes('Could not find the table'))) {
         return { 
           success: true, 
           message: 'Connected to Supabase! Please run the schema.sql in Supabase SQL Editor to create the tables.',

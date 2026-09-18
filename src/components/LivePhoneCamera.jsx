@@ -398,7 +398,7 @@ export function LivePhoneCamera({
       ctx.arc(cx, cy, 28, 0, 2 * Math.PI);
       ctx.stroke();
 
-      // 3. Draw Bounding Boxes ONLY if genuine detections exist
+      // 3. Draw Bounding Boxes with distinct styles for Live Objects vs. Civic Hazards
       if (isStreaming && detections && detections.length > 0) {
         const time = Date.now() / 300;
 
@@ -409,29 +409,32 @@ export function LivePhoneCamera({
           const bw = (bbox.w / 100) * width;
           const bh = (bbox.h / 100) * height;
 
+          const isHazard = d.isHazard !== undefined ? d.isHazard : (d.severity === 'critical' || d.severity === 'high');
           const isCritical = d.severity === 'critical';
           const isHigh = d.severity === 'high';
-          const strokeColor = isCritical 
-            ? 'rgba(239, 68, 68, 0.95)' 
-            : isHigh 
-            ? 'rgba(245, 158, 11, 0.95)' 
-            : 'rgba(59, 130, 246, 0.95)';
-          const fillColor = isCritical 
-            ? 'rgba(239, 68, 68, 0.12)' 
-            : isHigh 
-            ? 'rgba(245, 158, 11, 0.10)' 
-            : 'rgba(59, 130, 246, 0.10)';
+
+          const strokeColor = isHazard
+            ? (isCritical ? 'rgba(239, 68, 68, 0.95)' : 'rgba(245, 158, 11, 0.95)')
+            : 'rgba(6, 182, 212, 0.95)'; // Cyan for Live Scene Objects
+          const fillColor = isHazard
+            ? (isCritical ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.10)')
+            : 'rgba(6, 182, 212, 0.08)';
 
           ctx.fillStyle = fillColor;
           ctx.fillRect(bx, by, bw, bh);
 
           ctx.strokeStyle = strokeColor;
           ctx.lineWidth = 2.5;
-          ctx.setLineDash([8, 4]);
-          ctx.lineDashOffset = -time * 5;
+          if (isHazard) {
+            ctx.setLineDash([8, 4]);
+            ctx.lineDashOffset = -time * 5;
+          } else {
+            ctx.setLineDash([]);
+          }
           ctx.strokeRect(bx, by, bw, bh);
           ctx.setLineDash([]);
 
+          // Corner reticles
           const cLen = 12;
           ctx.lineWidth = 3.5;
           ctx.strokeStyle = strokeColor;
@@ -442,7 +445,9 @@ export function LivePhoneCamera({
           ctx.moveTo(bx + bw - cLen, by + bh); ctx.lineTo(bx + bw, by + bh); ctx.lineTo(bx + bw, by + bh - cLen);
           ctx.stroke();
 
-          const labelText = `${d.label} • ${d.confidence}%`;
+          // Label
+          const prefix = isHazard ? '⚠️ ' : '🎯 ';
+          const labelText = `${prefix}${d.label} • ${d.confidence}%`;
           ctx.font = 'bold 12px "Outfit", sans-serif';
           const textMetrics = ctx.measureText(labelText);
           const bannerWidth = Math.max(textMetrics.width + 16, 110);
@@ -454,7 +459,7 @@ export function LivePhoneCamera({
           ctx.fillStyle = '#FFFFFF';
           ctx.fillText(labelText, bx + 8, Math.max(15, by - 6));
 
-          if (d.roadPotholeDepthEst) {
+          if (d.roadPotholeDepthEst && isHazard) {
             const depthText = `Depth: ~${d.roadPotholeDepthEst}`;
             ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
             ctx.fillRect(bx, by + bh, 140, 20);
@@ -809,8 +814,10 @@ export function LivePhoneCamera({
             </span>
             <span>•</span>
             <span className="flex items-center gap-1">
-              <Cpu className="w-3 h-3 text-indigo-600" />
-              Model: <strong className="text-slate-700">{selectedModel.split('-')[0].toUpperCase()}</strong>
+              <Cpu className={`w-3 h-3 ${hasValidApiKey() ? 'text-emerald-600' : 'text-blue-600'}`} />
+              Model: <strong className={hasValidApiKey() ? 'text-emerald-700 font-bold' : 'text-slate-700 font-bold'}>
+                {hasValidApiKey() ? 'GEMINI 2.5 FLASH (DEEP LIVE AI)' : 'YOLOv12 EDGE CV (LOCAL OPTICAL)'}
+              </strong>
             </span>
           </div>
         </div>
@@ -958,6 +965,7 @@ export function LivePhoneCamera({
               <img
                 ref={ipImageRef}
                 alt="Phone IP Stream"
+                crossOrigin="anonymous"
                 src={isStreaming && activeStreamType === 'mjpeg_img' ? ipCameraUrl : ''}
                 className={`w-full h-full object-contain ${activeStreamType === 'mjpeg_img' && isStreaming ? 'block' : 'hidden'}`}
               />

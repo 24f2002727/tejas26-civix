@@ -36,7 +36,7 @@ export function ApiKeyModal({ isOpen, onClose, onKeyUpdated }) {
   // Gemini State
   const [keyInput, setKeyInput] = useState('');
   const [showKey, setShowKey] = useState(false);
-  const [modelInput, setModelInput] = useState('gemini-2.5-flash');
+  const [modelInput, setModelInput] = useState('gemini-1.5-flash');
   const [isTestingGemini, setIsTestingGemini] = useState(false);
   const [geminiTestResult, setGeminiTestResult] = useState(null);
 
