@@ -38,48 +38,104 @@ export function App() {
   const [isLiveCamOpen, setIsLiveCamOpen] = useState(false);
   const [liveCamInitialMode, setLiveCamInitialMode] = useState('ip_stream');
 
-  // Load Persisted Data from IndexedDB on App Startup
-  useEffect(() => {
-    async function loadDataLake() {
-      try {
-        await dbService.initDatabase();
-        
-        const [
-          savedClusters,
-          savedReports,
-          savedQueue,
-          savedCameras,
-          savedLogs,
-          savedProfile,
-          savedDepts
-        ] = await Promise.all([
-          dbService.getAll('clusters'),
-          dbService.getAll('citizenReports'),
-          dbService.getAll('verificationQueue'),
-          dbService.getAll('cameras'),
-          dbService.getAll('auditLogs'),
-          dbService.getAll('userProfile'),
-          dbService.getAll('departments')
-        ]);
+  // Load Persisted Data from Supabase / IndexedDB on App Startup
+  const loadDataLake = async () => {
+    try {
+      await dbService.initDatabase();
+      
+      const [
+        savedClusters,
+        savedReports,
+        savedQueue,
+        savedCameras,
+        savedLogs,
+        savedProfile,
+        savedDepts
+      ] = await Promise.all([
+        dbService.getAll('clusters'),
+        dbService.getAll('citizenReports'),
+        dbService.getAll('verificationQueue'),
+        dbService.getAll('cameras'),
+        dbService.getAll('auditLogs'),
+        dbService.getAll('userProfile'),
+        dbService.getAll('departments')
+      ]);
 
-        if (savedClusters && savedClusters.length > 0) {
-          setClusters(savedClusters);
-          setSelectedCluster(savedClusters[0]);
-        }
-        if (savedReports && savedReports.length > 0) setCitizenReports(savedReports);
-        if (savedQueue && savedQueue.length > 0) setVerificationQueue(savedQueue);
-        if (savedCameras && savedCameras.length > 0) setCameras(savedCameras);
-        if (savedLogs && savedLogs.length > 0) setAuditLogs(savedLogs);
-        if (savedProfile && savedProfile.length > 0) setUserProfile(savedProfile[0]);
-        if (savedDepts && savedDepts.length > 0) setDepartments(savedDepts);
-
-        setIsDbLoaded(true);
-      } catch (e) {
-        console.warn('Data Lake loading error:', e);
-        setIsDbLoaded(true);
+      if (savedClusters && savedClusters.length > 0) {
+        setClusters(savedClusters);
+        setSelectedCluster(savedClusters[0]);
       }
+      if (savedReports && savedReports.length > 0) setCitizenReports(savedReports);
+      if (savedQueue && savedQueue.length > 0) setVerificationQueue(savedQueue);
+      if (savedCameras && savedCameras.length > 0) setCameras(savedCameras);
+      if (savedLogs && savedLogs.length > 0) setAuditLogs(savedLogs);
+      if (savedProfile && savedProfile.length > 0) setUserProfile(savedProfile[0]);
+      if (savedDepts && savedDepts.length > 0) setDepartments(savedDepts);
+
+      setIsDbLoaded(true);
+    } catch (e) {
+      console.warn('Data Lake loading error:', e);
+      setIsDbLoaded(true);
     }
+  };
+
+  useEffect(() => {
     loadDataLake();
+  }, []);
+
+  // Supabase Real-Time WebSocket Subscriptions across devices/tabs
+  useEffect(() => {
+    const unsubReports = dbService.subscribe('citizenReports', (event) => {
+      if (event.eventType === 'INSERT' && event.new) {
+        setCitizenReports((prev) => {
+          if (prev.some((r) => r.id === event.new.id)) return prev;
+          return [event.new, ...prev];
+        });
+      } else if (event.eventType === 'UPDATE' && event.new) {
+        setCitizenReports((prev) => prev.map((r) => (r.id === event.new.id ? event.new : r)));
+      } else if (event.eventType === 'DELETE' && event.old) {
+        setCitizenReports((prev) => prev.filter((r) => r.id !== event.old.id));
+      }
+    });
+
+    const unsubClusters = dbService.subscribe('clusters', (event) => {
+      if (event.eventType === 'INSERT' && event.new) {
+        setClusters((prev) => {
+          if (prev.some((c) => c.id === event.new.id)) return prev;
+          return [event.new, ...prev];
+        });
+      } else if (event.eventType === 'UPDATE' && event.new) {
+        setClusters((prev) => prev.map((c) => (c.id === event.new.id ? event.new : c)));
+        setSelectedCluster((prev) => (prev?.id === event.new.id ? event.new : prev));
+      }
+    });
+
+    const unsubQueue = dbService.subscribe('verificationQueue', (event) => {
+      if (event.eventType === 'INSERT' && event.new) {
+        setVerificationQueue((prev) => {
+          if (prev.some((q) => q.id === event.new.id)) return prev;
+          return [event.new, ...prev];
+        });
+      } else if (event.eventType === 'UPDATE' && event.new) {
+        setVerificationQueue((prev) => prev.map((q) => (q.id === event.new.id ? event.new : q)));
+      }
+    });
+
+    const unsubAudit = dbService.subscribe('auditLogs', (event) => {
+      if (event.eventType === 'INSERT' && event.new) {
+        setAuditLogs((prev) => {
+          if (prev.some((l) => l.id === event.new.id)) return prev;
+          return [event.new, ...prev];
+        });
+      }
+    });
+
+    return () => {
+      if (unsubReports) unsubReports();
+      if (unsubClusters) unsubClusters();
+      if (unsubQueue) unsubQueue();
+      if (unsubAudit) unsubAudit();
+    };
   }, []);
 
   const handleOpenLiveCam = (mode = 'ip_stream') => {
@@ -429,10 +485,11 @@ export function App() {
         userProfile={userProfile}
       />
 
-      {/* Google Gemini API Key Modal */}
+      {/* Cloud & AI Configuration Modal */}
       <ApiKeyModal
         isOpen={isApiKeyModalOpen}
         onClose={() => setIsApiKeyModalOpen(false)}
+        onKeyUpdated={() => loadDataLake()}
       />
 
       {/* Government Clean & Rich Footer */}
