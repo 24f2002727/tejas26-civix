@@ -4,7 +4,9 @@
 const LOCALITY_STORAGE_KEY = 'civiceye_verified_locality';
 
 export const QUICK_DISTRICTS = [
+  { name: 'Sheikhpura', lat: 25.1385, lng: 85.8580, locality: 'Chandni Chowk & Katra Market (Ward 4)' },
   { name: 'Patna', lat: 25.6094, lng: 85.1376, locality: 'Fraser Road & Dak Bungalow (Ward 8)' },
+  { name: 'Barbigha', lat: 25.2340, lng: 85.7250, locality: 'Dr. S.K. Singh Chowk & Mission Market' },
   { name: 'Gaya', lat: 24.7955, lng: 85.0002, locality: 'Civil Lines & GB Road (Ward 7)' },
   { name: 'Muzaffarpur', lat: 26.1209, lng: 85.3647, locality: 'Saraiyaganj & Tower Chowk (Ward 4)' },
   { name: 'Bhagalpur', lat: 25.2425, lng: 86.9842, locality: 'Tilkamanjhi Chowk (Ward 2)' },
@@ -17,6 +19,97 @@ export const QUICK_DISTRICTS = [
 ];
 
 export const POPULAR_WARDS = [
+  // Sheikhpura District Wards
+  {
+    id: "skp-w04",
+    city: "Sheikhpura",
+    locality: "Chandni Chowk & Katra Bazaar (Ward 4)",
+    shortName: "Sheikhpura - Ward 4 (Chandni Chowk)",
+    lat: 25.1385,
+    lng: 85.8580,
+    landmark: "Near Katra Chowk & Nullah Bridge",
+    zone: "Sheikhpura Central Nagar Parishad"
+  },
+  {
+    id: "skp-w07",
+    city: "Sheikhpura",
+    locality: "Girihinda Pahar & Mandir Road (Ward 7)",
+    shortName: "Sheikhpura - Ward 7 (Girihinda)",
+    lat: 25.1432,
+    lng: 85.8640,
+    landmark: "Near Girihinda Shiv Mandir Footsteps",
+    zone: "Girihinda North Zone"
+  },
+  {
+    id: "skp-w01",
+    city: "Sheikhpura",
+    locality: "District Collectorate & Civil Court (Ward 1)",
+    shortName: "Sheikhpura - Ward 1 (Collectorate)",
+    lat: 25.1320,
+    lng: 85.8520,
+    landmark: "Near DM Office & Civil Court",
+    zone: "Administrative Zone"
+  },
+  {
+    id: "skp-w09",
+    city: "Sheikhpura",
+    locality: "Sheikhpura Junction & Station Road (Ward 9)",
+    shortName: "Sheikhpura - Ward 9 (Station Road)",
+    lat: 25.1480,
+    lng: 85.8595,
+    landmark: "Near Railway Station Gate #1",
+    zone: "Railway Colony Zone"
+  },
+  {
+    id: "bbg-w05",
+    city: "Barbigha",
+    locality: "Dr. Shri Krishna Singh Chowk & Mission Market (Ward 5)",
+    shortName: "Barbigha - Ward 5 (S.K. Singh Chowk)",
+    lat: 25.2340,
+    lng: 85.7250,
+    landmark: "Near Mission Chowk & NH-333A",
+    zone: "Barbigha Nagar Parishad"
+  },
+  {
+    id: "bbg-w02",
+    city: "Barbigha",
+    locality: "Sarvoday Nagar & Bypass Road (Ward 2)",
+    shortName: "Barbigha - Ward 2 (Sarvoday Nagar)",
+    lat: 25.2410,
+    lng: 85.7310,
+    landmark: "Near Bypass Road Petrol Pump",
+    zone: "Barbigha East"
+  },
+  {
+    id: "ari-w01",
+    city: "Ariari",
+    locality: "Kasia Bigha & Block Headquarters",
+    shortName: "Ariari Block - Kasia Bigha",
+    lat: 25.0680,
+    lng: 85.8920,
+    landmark: "Near Ariari Block Office",
+    zone: "Ariari Rural Block"
+  },
+  {
+    id: "che-w01",
+    city: "Chewara",
+    locality: "Chewara Main Bazaar & Block Road",
+    shortName: "Chewara - Main Market",
+    lat: 25.0450,
+    lng: 85.7950,
+    landmark: "Near Chewara High School",
+    zone: "Chewara Block"
+  },
+  {
+    id: "sps-w01",
+    city: "Shekhopur Sarai",
+    locality: "Sarai Chowk & Primary Health Centre",
+    shortName: "Shekhopur Sarai - PHC Road",
+    lat: 25.2010,
+    lng: 85.7890,
+    landmark: "Near Sarai Hospital",
+    zone: "Shekhopur Sarai Block"
+  },
   // Patna Wards
   {
     id: "patna-w08",

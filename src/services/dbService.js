@@ -219,28 +219,28 @@ export const dbService = {
       userProfile: [USER_PROFILE]
     };
 
-    // 1. Ensure local cache has initial datasets
+    // 1. Ensure local cache has initial datasets including new district entries
     for (const [store, defaultData] of Object.entries(initialMap)) {
       const existing = await getLocalAll(store);
       if (!existing || existing.length === 0) {
         await bulkPutLocal(store, defaultData);
+      } else {
+        // Ensure new seed items (e.g. Sheikhpura datasets) are present in local store
+        const existingIds = new Set(existing.map((x) => x.id));
+        const missing = defaultData.filter((x) => !existingIds.has(x.id));
+        if (missing.length > 0) {
+          await bulkPutLocal(store, [...missing, ...existing]);
+        }
       }
     }
 
-    // 2. If Supabase is connected, check and seed cloud tables if empty
+    // 2. If Supabase is connected, check and seed cloud tables
     const supabase = getSupabaseClient();
     if (supabase) {
       try {
         for (const [store, defaultData] of Object.entries(initialMap)) {
           const pgTable = STORE_TO_PG_TABLE[store] || store;
-          const { count, error } = await supabase
-            .from(pgTable)
-            .select('*', { count: 'exact', head: true });
-
-          if (!error && (count === 0 || count === null)) {
-            // Push initial dataset to Supabase
-            await supabase.from(pgTable).upsert(defaultData);
-          }
+          await supabase.from(pgTable).upsert(defaultData);
         }
       } catch (err) {
         console.warn('Supabase initial seed error (offline or invalid table):', err);

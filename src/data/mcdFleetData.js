@@ -2,6 +2,105 @@
 // Real-time mobile vision feeds from Municipal Corporation vehicles patrolling streets with zero fixed CCTV coverage.
 
 export const MCD_VEHICLE_FLEET = [
+  // --- SHEIKHPURA NAGAR PARISHAD PATROL FLEET ---
+  {
+    id: "SKP-PATROL-01",
+    vehicleNumber: "BR-52-A-4092",
+    type: "Road Surface Inspection Van",
+    name: "Sheikhpura Nagar Parishad Pothole Scanner #1",
+    driver: "Ramesh Kumar Paswan (Sub-Inspector)",
+    department: "Roads & Bridges Dept",
+    ward: "Ward 4 (Chandni Chowk - Katra Road)",
+    status: "patrolling",
+    speedKmH: 28,
+    currentLocation: "Chandni Chowk towards Station Road",
+    lat: 25.1385,
+    lng: 85.8580,
+    heading: 92,
+    roadDistressIndex: 82,
+    cameraSpecs: "Dual Front-Facing Sony Starvis 4K AI Dashcam",
+    aiModel: "CivicEye-YOLO-v12 + Gemini 1.5 Flash",
+    fps: 30,
+    activeAnomaliesDetected: 5,
+    lastPotholeDetected: {
+      id: "POT-SKP-01",
+      location: "Katra Bazaar Nullah Bridge Approach",
+      severity: "critical",
+      depthEstimateCm: 13.5,
+      areaSqM: 2.1,
+      confidence: 96,
+      time: "2 mins ago",
+      imageUrl: "https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=800&q=80"
+    },
+    batteryLevel: 91,
+    storageGbRemaining: 420
+  },
+  {
+    id: "SKP-HIGHWAY-02",
+    vehicleNumber: "BR-52-G-1904",
+    type: "Highway Rapid Surface Patrol",
+    name: "NH-333A Sheikhpura-Barbigha Highway Scanner",
+    driver: "Manoj Yadav (Highway Field Officer)",
+    department: "Roads & Bridges Dept",
+    ward: "NH-333A Arterial Corridor (Mehus Mod)",
+    status: "patrolling",
+    speedKmH: 42,
+    currentLocation: "NH-333A near Mehus Mod Bypass",
+    lat: 25.1850,
+    lng: 85.7920,
+    heading: 280,
+    roadDistressIndex: 88,
+    cameraSpecs: "Dual Front 4K Optical Road Profiler",
+    aiModel: "CivicEye-YOLO-v12 Edge",
+    fps: 30,
+    activeAnomaliesDetected: 8,
+    lastPotholeDetected: {
+      id: "POT-SKP-02",
+      location: "NH-333A km 14.2 (Near Stone Quarry Crossing)",
+      severity: "critical",
+      depthEstimateCm: 14.0,
+      areaSqM: 3.4,
+      confidence: 98,
+      time: "5 mins ago",
+      imageUrl: "https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=800&q=80"
+    },
+    batteryLevel: 86,
+    storageGbRemaining: 380
+  },
+  {
+    id: "SKP-SWM-03",
+    vehicleNumber: "BR-52-C-8120",
+    type: "Solid Waste Compactor Tipper",
+    name: "Girihinda Pahar & Station Road Sanitation Tipper",
+    driver: "Sunil Sharma (Sanitation Supervisor)",
+    department: "Solid Waste Management",
+    ward: "Ward 7 & Ward 9 (Girihinda - Station Road)",
+    status: "patrolling",
+    speedKmH: 20,
+    currentLocation: "Girihinda Mandir Road Footsteps",
+    lat: 25.1432,
+    lng: 85.8640,
+    heading: 140,
+    roadDistressIndex: 54,
+    cameraSpecs: "Wide-Angle 160° Waste Sentinel Cam",
+    aiModel: "CivicEye-SWM-Detector",
+    fps: 30,
+    activeAnomaliesDetected: 4,
+    lastPotholeDetected: {
+      id: "DUMP-SKP-03",
+      location: "Girihinda Pahar Main Gate",
+      severity: "high",
+      depthEstimateCm: null,
+      areaSqM: 6.2,
+      confidence: 91,
+      time: "10 mins ago",
+      imageUrl: "https://images.unsplash.com/photo-1530587191325-3db32d826c18?w=800&auto=format&fit=crop&q=80"
+    },
+    batteryLevel: 94,
+    storageGbRemaining: 490
+  },
+
+  // --- STATE-LEVEL PATROL FLEET ---
   {
     id: "MCD-PATROL-01",
     vehicleNumber: "DL-1C-AA-4092",
@@ -10,13 +109,13 @@ export const MCD_VEHICLE_FLEET = [
     driver: "Rajesh Kumar (Inspector)",
     department: "Roads & Bridges Dept",
     ward: "Ward 12 (Civil Lines & Ring Road)",
-    status: "patrolling", // patrolling, stationary, maintenance
+    status: "patrolling",
     speedKmH: 34,
     currentLocation: "Outer Ring Road North Bypass",
     lat: 12.9745,
     lng: 77.5912,
-    heading: 85, // degrees
-    roadDistressIndex: 78, // 0-100 (higher = worse road condition)
+    heading: 85,
+    roadDistressIndex: 78,
     cameraSpecs: "Dual Front-Facing Sony Starvis 4K AI Dashcam",
     aiModel: "CivicEye-YOLO-v9 + Gemini Vision",
     fps: 28,
