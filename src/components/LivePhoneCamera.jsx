@@ -35,10 +35,12 @@ import {
   Gauge,
   Waves,
   Lightbulb,
-  RadioTower,
-  SmartphoneNfc,
-  Key,
-  FlaskConical
+  FlaskConical,
+  Upload,
+  FileVideo,
+  Pause,
+  RotateCcw,
+  FastForward
 } from 'lucide-react';
 import { 
   detectCivicIssuesInLiveImage, 
@@ -114,6 +116,16 @@ export function LivePhoneCamera({
   const [actionSuccessMsg, setActionSuccessMsg] = useState(null);
   const [showPairingGuide, setShowPairingGuide] = useState(false);
 
+  // Custom Video File Upload State
+  const [customVideoFile, setCustomVideoFile] = useState(null);
+  const [customVideoUrl, setCustomVideoUrl] = useState('');
+  const [customVideoDuration, setCustomVideoDuration] = useState(0);
+  const [customVideoCurrentTime, setCustomVideoCurrentTime] = useState(0);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [playbackSpeed, setPlaybackSpeed] = useState(1);
+  const [isLooping, setIsLooping] = useState(true);
+  const fileInputRef = useRef(null);
+
   // DOM Refs
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
@@ -178,6 +190,18 @@ export function LivePhoneCamera({
       startDeviceCamera();
     } else if (activeMode === 'mcd_dashcam') {
       loadSampleVideo();
+    } else if (activeMode === 'custom_video') {
+      if (customVideoUrl && videoRef.current) {
+        setIsStreaming(true);
+        setActiveStreamType('video');
+        setIpConnectStatus('connected');
+        videoRef.current.srcObject = null;
+        videoRef.current.src = customVideoUrl;
+        videoRef.current.play().then(() => setIsVideoPlaying(true)).catch(() => {});
+      } else {
+        setIsSampleVideoActive(false);
+        setIpConnectStatus('idle');
+      }
     } else if (activeMode === 'ip_stream') {
       setIsSampleVideoActive(false);
       setIpConnectStatus('idle');
@@ -298,6 +322,72 @@ export function LivePhoneCamera({
     testImg.src = `${testUrl}?t=${Date.now()}`;
   };
 
+  // Format seconds into MM:SS
+  const formatTime = (secs) => {
+    if (isNaN(secs) || secs < 0) return '00:00';
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  // Upload and stream custom video file (.mp4, .webm, .mov, etc.)
+  const handleCustomVideoUpload = (file) => {
+    if (!file) return;
+    stopAllStreams();
+    const url = URL.createObjectURL(file);
+    setCustomVideoFile(file);
+    setCustomVideoUrl(url);
+    setIsSampleVideoActive(false);
+    setIsStreaming(true);
+    setActiveStreamType('video');
+    setIpConnectStatus('connected');
+    setOpticalStatus(`Custom Video: ${file.name}`);
+    setFps(30);
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+      videoRef.current.src = url;
+      videoRef.current.loop = isLooping;
+      videoRef.current.playbackRate = playbackSpeed;
+      videoRef.current.muted = true;
+      videoRef.current.play().then(() => {
+        setIsVideoPlaying(true);
+      }).catch((e) => {
+        console.warn('Playback error:', e);
+      });
+    }
+  };
+
+  // Toggle Video Play / Pause
+  const togglePlayPause = () => {
+    if (!videoRef.current) return;
+    if (videoRef.current.paused) {
+      videoRef.current.play().then(() => setIsVideoPlaying(true)).catch(() => {});
+    } else {
+      videoRef.current.pause();
+      setIsVideoPlaying(false);
+    }
+  };
+
+  // Seek video to specific timestamp (seconds)
+  const handleSeekVideo = (seconds) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = seconds;
+      setCustomVideoCurrentTime(seconds);
+      setTimeout(() => {
+        runFrameInference();
+      }, 100);
+    }
+  };
+
+  // Change video playback rate
+  const handleSpeedChange = (speed) => {
+    setPlaybackSpeed(speed);
+    if (videoRef.current) {
+      videoRef.current.playbackRate = speed;
+    }
+  };
+
   // Load sample video stream for MCD Dashcam mode
   const loadSampleVideo = () => {
     stopAllStreams();
@@ -313,7 +403,7 @@ export function LivePhoneCamera({
       videoRef.current.src = "https://assets.mixkit.co/videos/preview/mixkit-car-driving-on-a-street-in-the-city-43450-large.mp4";
       videoRef.current.loop = true;
       videoRef.current.muted = true;
-      videoRef.current.play().catch(() => {});
+      videoRef.current.play().then(() => setIsVideoPlaying(true)).catch(() => {});
     }
   };
 
@@ -780,7 +870,20 @@ export function LivePhoneCamera({
               <span>2. Phone / Web Camera (WebRTC)</span>
             </button>
 
-            {/* Mode 3: MCD Vehicle Mobile Dashcam */}
+            {/* Mode 3: Custom Video File AI Analyzer */}
+            <button
+              onClick={() => setActiveMode('custom_video')}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-bold transition-all cursor-pointer ${
+                activeMode === 'custom_video'
+                  ? 'bg-blue-700 text-white shadow-xs'
+                  : 'text-slate-700 hover:text-slate-900 hover:bg-white'
+              }`}
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>3. Upload & Inspect Video File</span>
+            </button>
+
+            {/* Mode 4: MCD Vehicle Mobile Dashcam */}
             <button
               onClick={() => setActiveMode('mcd_dashcam')}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-bold transition-all cursor-pointer ${
@@ -790,10 +893,10 @@ export function LivePhoneCamera({
               }`}
             >
               <Car className="w-3.5 h-3.5" />
-              <span>3. MCD Vehicle Mobile Dashcam</span>
+              <span>4. MCD Vehicle Mobile Dashcam</span>
             </button>
 
-            {/* Mode 4: ML Model Test Bench */}
+            {/* Mode 5: ML Model Test Bench */}
             <button
               onClick={() => setActiveMode('ml_benchmark')}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-lg font-bold transition-all cursor-pointer ${
@@ -803,7 +906,7 @@ export function LivePhoneCamera({
               }`}
             >
               <Cpu className="w-3.5 h-3.5" />
-              <span>4. Edge ML & IoT Benchmark</span>
+              <span>5. Edge ML & IoT Benchmark</span>
             </button>
           </div>
 
@@ -893,6 +996,8 @@ export function LivePhoneCamera({
                       <Wifi className="w-8 h-8" />
                     ) : activeMode === 'phone_device' ? (
                       <Camera className="w-8 h-8" />
+                    ) : activeMode === 'custom_video' ? (
+                      <Upload className="w-8 h-8" />
                     ) : (
                       <Car className="w-8 h-8" />
                     )}
@@ -902,12 +1007,14 @@ export function LivePhoneCamera({
                     <h3 className="text-base font-bold text-white font-['Outfit']">
                       {activeMode === 'ip_stream' && 'Phone IP Camera Disconnected'}
                       {activeMode === 'phone_device' && 'Phone Camera Ready'}
+                      {activeMode === 'custom_video' && 'Custom Video AI Inspector'}
                       {activeMode === 'mcd_dashcam' && 'MCD Patrol Dashcam Ready'}
                       {activeMode === 'ml_benchmark' && 'ML Model Test Bench Active'}
                     </h3>
                     <p className="text-xs text-slate-400 mt-1">
                       {activeMode === 'ip_stream' && 'Enter your phone IP address on the right panel and tap Connect to stream live video.'}
                       {activeMode === 'phone_device' && 'Grant browser camera permission to stream directly with your phone or laptop lens.'}
+                      {activeMode === 'custom_video' && 'Select any MP4, WebM, or MOV video file to run continuous real-time AI computer vision on every frame.'}
                       {activeMode === 'mcd_dashcam' && 'Click Start Dashcam Stream to inspect municipal patrol road footage.'}
                     </p>
                   </div>
@@ -922,7 +1029,24 @@ export function LivePhoneCamera({
                     </div>
                   )}
 
-                  <div className="flex items-center justify-center gap-2 pt-2">
+                  <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+                    {activeMode === 'custom_video' && (
+                      <>
+                        <button
+                          onClick={() => fileInputRef.current?.click()}
+                          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          <span>Choose Video File (.mp4, .mov, .webm)</span>
+                        </button>
+                        <button
+                          onClick={loadSampleVideo}
+                          className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-all cursor-pointer"
+                        >
+                          Load Demo Video
+                        </button>
+                      </>
+                    )}
                     {activeMode === 'phone_device' && (
                       <button
                         onClick={startDeviceCamera}
@@ -958,6 +1082,10 @@ export function LivePhoneCamera({
                 playsInline
                 autoPlay
                 muted
+                onLoadedMetadata={(e) => setCustomVideoDuration(e.target.duration || 0)}
+                onTimeUpdate={(e) => setCustomVideoCurrentTime(e.target.currentTime || 0)}
+                onPlay={() => setIsVideoPlaying(true)}
+                onPause={() => setIsVideoPlaying(false)}
                 className={`w-full h-full object-contain ${activeStreamType === 'video' && isStreaming ? 'block' : 'hidden'}`}
               />
 
@@ -987,6 +1115,63 @@ export function LivePhoneCamera({
                 <span>{opticalStatus}</span>
               </div>
             </div>
+
+            {/* VIDEO TIMELINE SCRUBBER & PLAYBACK CONTROLS (Active in Custom Video Mode) */}
+            {activeMode === 'custom_video' && isStreaming && (
+              <div className="bg-slate-900/95 backdrop-blur-md p-2.5 rounded-xl border border-slate-800 mt-2 space-y-1.5 text-white text-xs z-20 shrink-0">
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <button
+                    onClick={togglePlayPause}
+                    className="p-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-all cursor-pointer shrink-0"
+                    title={isVideoPlaying ? 'Pause Video' : 'Play Video'}
+                  >
+                    {isVideoPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  </button>
+
+                  <button
+                    onClick={() => handleSeekVideo(0)}
+                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-all cursor-pointer shrink-0"
+                    title="Restart from beginning"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                  </button>
+
+                  {/* Scrubber Range Bar */}
+                  <div className="flex-1 flex items-center gap-2 min-w-0">
+                    <span className="font-mono text-[11px] text-blue-300 w-11 text-right shrink-0">
+                      {formatTime(customVideoCurrentTime)}
+                    </span>
+                    <input
+                      type="range"
+                      min="0"
+                      max={customVideoDuration || 100}
+                      step="0.1"
+                      value={customVideoCurrentTime}
+                      onChange={(e) => handleSeekVideo(Number(e.target.value))}
+                      className="flex-1 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                    />
+                    <span className="font-mono text-[11px] text-slate-400 w-11 shrink-0">
+                      {formatTime(customVideoDuration)}
+                    </span>
+                  </div>
+
+                  {/* Speed Controls */}
+                  <div className="flex items-center gap-0.5 bg-slate-800 p-0.5 rounded-lg text-[10px] font-bold shrink-0">
+                    {[0.5, 1.0, 1.5, 2.0].map((spd) => (
+                      <button
+                        key={spd}
+                        onClick={() => handleSpeedChange(spd)}
+                        className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                          playbackSpeed === spd ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        {spd}x
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* BOTTOM HUD ACTION CONTROLS */}
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800 text-xs shrink-0">
@@ -1155,6 +1340,89 @@ export function LivePhoneCamera({
                     >
                       <RefreshCw className="w-3.5 h-3.5 text-blue-600" />
                       <span>Flip: {cameraFacingMode === 'environment' ? 'Rear (Back Cam)' : 'Front (Selfie)'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* 3. CUSTOM VIDEO FILE INSPECTION PANEL */}
+              {activeMode === 'custom_video' && (
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                      <FileVideo className="w-4 h-4 text-blue-600" />
+                      Custom Video AI Inspection
+                    </h3>
+                    <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded">
+                      FRAME INFERENCE
+                    </span>
+                  </div>
+
+                  {/* Video Upload Dropzone */}
+                  <div 
+                    onClick={() => fileInputRef.current?.click()}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (e.dataTransfer.files?.[0]) {
+                        handleCustomVideoUpload(e.dataTransfer.files[0]);
+                      }
+                    }}
+                    className="border-2 border-dashed border-blue-300 hover:border-blue-500 bg-blue-50/50 hover:bg-blue-50 p-4 rounded-xl text-center cursor-pointer transition-all space-y-2"
+                  >
+                    <Upload className="w-6 h-6 text-blue-600 mx-auto" />
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">
+                        {customVideoFile ? customVideoFile.name : 'Click or Drag & Drop Video File'}
+                      </span>
+                      <span className="text-[10px] text-slate-500">
+                        Supports MP4, WebM, MOV, AVI, MKV (1080p/4K)
+                      </span>
+                    </div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="video/*"
+                      onChange={(e) => {
+                        if (e.target.files?.[0]) {
+                          handleCustomVideoUpload(e.target.files[0]);
+                        }
+                      }}
+                      className="hidden"
+                    />
+                  </div>
+
+                  {customVideoFile && (
+                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs space-y-1.5">
+                      <div className="flex justify-between text-slate-600 text-[11px]">
+                        <span>File Size:</span>
+                        <strong className="text-slate-800">{(customVideoFile.size / (1024 * 1024)).toFixed(1)} MB</strong>
+                      </div>
+                      <div className="flex justify-between text-slate-600 text-[11px]">
+                        <span>Duration:</span>
+                        <strong className="text-slate-800">{formatTime(customVideoDuration)}</strong>
+                      </div>
+                      <div className="flex justify-between text-slate-600 text-[11px]">
+                        <span>Current Frame:</span>
+                        <strong className="text-blue-700 font-mono">{formatTime(customVideoCurrentTime)}</strong>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="flex-1 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>Choose Different Video</span>
+                    </button>
+                    <button
+                      onClick={loadSampleVideo}
+                      className="py-2 px-3 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      title="Load city driving sample video"
+                    >
+                      <span>Demo Sample</span>
                     </button>
                   </div>
                 </div>
