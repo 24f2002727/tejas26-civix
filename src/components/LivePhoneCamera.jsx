@@ -50,6 +50,9 @@ import {
   playDetectionBeep, 
   getApiKey, 
   setApiKey as persistApiKey,
+  getGroqApiKey,
+  getOpenAiApiKey,
+  getActiveVisionProvider,
   hasValidApiKey, 
   getSelectedModel, 
   setSelectedModel as persistSelectedModel,
@@ -89,6 +92,7 @@ export function LivePhoneCamera({
   const [isAiScanning, setIsAiScanning] = useState(true);
   const [scanIntervalSec, setScanIntervalSec] = useState(3);
   const [sensitivity, setSensitivity] = useState(75);
+  const [detectionRate, setDetectionRate] = useState(0.20); // 0.20 = 20%, 0.50 = 50%, 1.0 = 100%
   const [selectedModel, setSelectedModel] = useState(getSelectedModel());
   const [soundAlerts, setSoundAlerts] = useState(true);
   const [detections, setDetections] = useState([]);
@@ -712,7 +716,7 @@ export function LivePhoneCamera({
   }, [isStreaming, activeStreamType]);
 
   // Run AI ML Inference on the current live frame
-  const runFrameInference = useCallback(async () => {
+  const runFrameInference = useCallback(async (forceImmediate = false) => {
     if (isAnalyzingFrame || !isStreaming) return;
     setIsAnalyzingFrame(true);
 
@@ -727,7 +731,9 @@ export function LivePhoneCamera({
       const result = await detectCivicIssuesInLiveImage(frameBase64, {
         model: selectedModel,
         sensitivity,
-        isSampleVideo: isSampleVideoActive
+        isSampleVideo: isSampleVideoActive,
+        detectionRate,
+        forceDetect: forceImmediate
       });
 
       setLatestAnalysis(result);
@@ -762,7 +768,7 @@ export function LivePhoneCamera({
     } finally {
       setIsAnalyzingFrame(false);
     }
-  }, [isAnalyzingFrame, isStreaming, captureCurrentFrameBase64, selectedModel, sensitivity, isSampleVideoActive, soundAlerts]);
+  }, [isAnalyzingFrame, isStreaming, captureCurrentFrameBase64, selectedModel, sensitivity, isSampleVideoActive, soundAlerts, detectionRate]);
 
   // Periodic AI Scanning Loop
   useEffect(() => {
@@ -995,8 +1001,8 @@ export function LivePhoneCamera({
             <span>•</span>
             <span className="flex items-center gap-1">
               <Cpu className={`w-3 h-3 ${hasValidApiKey() ? 'text-emerald-600' : 'text-blue-600'}`} />
-              Model: <strong className={hasValidApiKey() ? 'text-emerald-700 font-bold' : 'text-slate-700 font-bold'}>
-                {hasValidApiKey() ? 'GEMINI 2.5 FLASH (DEEP LIVE AI)' : 'YOLOv12 EDGE CV (LOCAL OPTICAL)'}
+              AI Vision Engine: <strong className={hasValidApiKey() ? 'text-emerald-700 font-bold' : 'text-slate-700 font-bold'}>
+                {getActiveVisionProvider().toUpperCase()}
               </strong>
             </span>
           </div>
@@ -1277,12 +1283,13 @@ export function LivePhoneCamera({
                 </button>
 
                 <button
-                  onClick={runFrameInference}
+                  onClick={() => runFrameInference(true)}
                   disabled={!isStreaming || isAnalyzingFrame}
-                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-medium flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40"
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 shadow-xs"
+                  title="Scan live camera viewfinder now and detect objects / defects immediately"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isAnalyzingFrame ? 'animate-spin text-blue-400' : ''}`} />
-                  <span>{isAnalyzingFrame ? 'Analyzing...' : 'Scan Frame Now'}</span>
+                  <RefreshCw className={`w-3.5 h-3.5 ${isAnalyzingFrame ? 'animate-spin text-white' : ''}`} />
+                  <span>{isAnalyzingFrame ? 'Scanning...' : 'Scan Frame Now'}</span>
                 </button>
 
                 <button
@@ -1649,16 +1656,24 @@ export function LivePhoneCamera({
                 <div className="flex items-center justify-between">
                   <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
                     <Cpu className="w-4 h-4 text-indigo-600" />
-                    Multimodal Computer Vision Model
+                    Computer Vision AI Engine
                   </h3>
-                  {hasValidApiKey() && (
-                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                      GEMINI CLOUD LIVE
-                    </span>
-                  )}
+                  <button
+                    onClick={() => onOpenApiKeyModal ? onOpenApiKeyModal() : null}
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1 transition-all cursor-pointer ${
+                      hasValidApiKey() ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200' : 'text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200'
+                    }`}
+                    title="Change AI Vision Provider (Groq, Gemini, OpenAI)"
+                  >
+                    <span>{getActiveVisionProvider().toUpperCase()}</span>
+                    <Key className="w-2.5 h-2.5 opacity-70" />
+                  </button>
                 </div>
 
                 <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                    Select Active Vision Model / API:
+                  </label>
                   <select
                     value={selectedModel}
                     onChange={(e) => {
@@ -1671,6 +1686,45 @@ export function LivePhoneCamera({
                       <option key={m.id} value={m.id}>{m.name}</option>
                     ))}
                   </select>
+                </div>
+
+                {/* Detection Frequency Preset */}
+                <div>
+                  <div className="flex items-center justify-between text-xs mb-1 font-bold text-slate-600">
+                    <span>Detection Frequency:</span>
+                    <span className="text-blue-700 font-mono">
+                      {detectionRate === 1.0 ? '100% (Continuous)' : detectionRate === 0.5 ? '50% (Active Demo)' : '20% (Patrol Interval)'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 bg-slate-100 p-1 rounded-lg text-xs font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setDetectionRate(0.20)}
+                      className={`py-1.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                        detectionRate === 0.20 ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      15-20%
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDetectionRate(0.50)}
+                      className={`py-1.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                        detectionRate === 0.50 ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      50% Demo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDetectionRate(1.0)}
+                      className={`py-1.5 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                        detectionRate === 1.0 ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      100% Live
+                    </button>
+                  </div>
                 </div>
 
                 <div>

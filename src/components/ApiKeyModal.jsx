@@ -13,14 +13,22 @@ import {
   Database,
   Cloud,
   Check,
-  RefreshCw
+  RefreshCw,
+  Zap,
+  Layers
 } from 'lucide-react';
 import { 
   getApiKey, 
   setApiKey, 
+  getGroqApiKey,
+  setGroqApiKey,
+  getOpenAiApiKey,
+  setOpenAiApiKey,
   getSelectedModel, 
   setSelectedModel, 
   testGeminiApiKey,
+  testGroqApiKey,
+  testOpenAiApiKey,
   SUPPORTED_MODELS
 } from '../services/aiService';
 import {
@@ -31,7 +39,13 @@ import {
 } from '../services/supabaseClient';
 
 export function ApiKeyModal({ isOpen, onClose, onKeyUpdated }) {
-  const [activeTab, setActiveTab] = useState('supabase'); // 'supabase' | 'gemini'
+  const [activeTab, setActiveTab] = useState('groq'); // 'groq' | 'gemini' | 'openai' | 'supabase'
+
+  // Groq State
+  const [groqKeyInput, setGroqKeyInput] = useState('');
+  const [showGroqKey, setShowGroqKey] = useState(false);
+  const [isTestingGroq, setIsTestingGroq] = useState(false);
+  const [groqTestResult, setGroqTestResult] = useState(null);
 
   // Gemini State
   const [keyInput, setKeyInput] = useState('');
@@ -39,6 +53,12 @@ export function ApiKeyModal({ isOpen, onClose, onKeyUpdated }) {
   const [modelInput, setModelInput] = useState('gemini-1.5-flash');
   const [isTestingGemini, setIsTestingGemini] = useState(false);
   const [geminiTestResult, setGeminiTestResult] = useState(null);
+
+  // OpenAI / OpenRouter State
+  const [openAiKeyInput, setOpenAiKeyInput] = useState('');
+  const [showOpenAiKey, setShowOpenAiKey] = useState(false);
+  const [isTestingOpenAi, setIsTestingOpenAi] = useState(false);
+  const [openAiTestResult, setOpenAiTestResult] = useState(null);
 
   // Supabase State
   const [supabaseUrl, setSupabaseUrl] = useState('');
@@ -49,10 +69,14 @@ export function ApiKeyModal({ isOpen, onClose, onKeyUpdated }) {
 
   useEffect(() => {
     if (isOpen) {
-      // Load Gemini config
+      // Load AI configs
+      setGroqKeyInput(getGroqApiKey());
       setKeyInput(getApiKey());
+      setOpenAiKeyInput(getOpenAiApiKey());
       setModelInput(getSelectedModel());
       setGeminiTestResult(null);
+      setGroqTestResult(null);
+      setOpenAiTestResult(null);
 
       // Load Supabase config
       const supa = getSupabaseConfig();
@@ -65,15 +89,29 @@ export function ApiKeyModal({ isOpen, onClose, onKeyUpdated }) {
   if (!isOpen) return null;
 
   const handleSave = () => {
-    // Save Gemini
+    // Save AI keys
+    setGroqApiKey(groqKeyInput);
     setApiKey(keyInput);
+    setOpenAiApiKey(openAiKeyInput);
     setSelectedModel(modelInput);
 
     // Save Supabase
     setSupabaseConfig(supabaseUrl, supabaseKey);
 
-    if (onKeyUpdated) onKeyUpdated({ geminiKey: keyInput, supabaseUrl, supabaseKey });
+    if (onKeyUpdated) onKeyUpdated({ 
+      groqKey: groqKeyInput,
+      geminiKey: keyInput, 
+      openAiKey: openAiKeyInput,
+      supabaseUrl, 
+      supabaseKey 
+    });
     onClose();
+  };
+
+  const handleClearGroq = () => {
+    setGroqKeyInput('');
+    setGroqApiKey('');
+    setGroqTestResult(null);
   };
 
   const handleClearGemini = () => {
@@ -82,11 +120,30 @@ export function ApiKeyModal({ isOpen, onClose, onKeyUpdated }) {
     setGeminiTestResult(null);
   };
 
+  const handleClearOpenAi = () => {
+    setOpenAiKeyInput('');
+    setOpenAiApiKey('');
+    setOpenAiTestResult(null);
+  };
+
   const handleClearSupabase = () => {
     setSupabaseUrl('');
     setSupabaseKey('');
     setSupabaseConfig('', '');
     setSupabaseTestResult(null);
+  };
+
+  const handleTestGroq = async () => {
+    if (!groqKeyInput.trim()) {
+      setGroqTestResult({ success: false, message: 'Please paste your Groq API key first.' });
+      return;
+    }
+    setIsTestingGroq(true);
+    setGroqTestResult(null);
+
+    const res = await testGroqApiKey(groqKeyInput.trim());
+    setIsTestingGroq(false);
+    setGroqTestResult(res);
   };
 
   const handleTestGemini = async () => {
@@ -102,6 +159,19 @@ export function ApiKeyModal({ isOpen, onClose, onKeyUpdated }) {
     setIsTestingGemini(false);
     setGeminiTestResult(res);
     setModelInput(getSelectedModel());
+  };
+
+  const handleTestOpenAi = async () => {
+    if (!openAiKeyInput.trim()) {
+      setOpenAiTestResult({ success: false, message: 'Please paste your OpenAI / OpenRouter API key first.' });
+      return;
+    }
+    setIsTestingOpenAi(true);
+    setOpenAiTestResult(null);
+
+    const res = await testOpenAiApiKey(openAiKeyInput.trim());
+    setIsTestingOpenAi(false);
+    setOpenAiTestResult(res);
   };
 
   const handleTestSupabase = async () => {
@@ -130,9 +200,9 @@ export function ApiKeyModal({ isOpen, onClose, onKeyUpdated }) {
             </div>
             <div>
               <h2 className="text-base font-bold font-['Outfit'] flex items-center gap-2">
-                <span>Cloud & AI Infrastructure Settings</span>
+                <span>Cloud & AI Vision Engine Settings</span>
               </h2>
-              <p className="text-xs text-blue-100 mt-0.5">Configure Supabase PostgreSQL Data Lake & Google Gemini AI</p>
+              <p className="text-xs text-blue-100 mt-0.5">Configure Groq Llama 3.2 Vision, Gemini, OpenAI & Supabase</p>
             </div>
           </div>
 
@@ -145,43 +215,279 @@ export function ApiKeyModal({ isOpen, onClose, onKeyUpdated }) {
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex border-b border-slate-200 bg-slate-50 px-5 pt-2 gap-2">
+        <div className="flex flex-wrap border-b border-slate-200 bg-slate-50 px-5 pt-2 gap-1.5">
           <button
             type="button"
-            onClick={() => setActiveTab('supabase')}
-            className={`px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all cursor-pointer flex items-center gap-2 border-b-2 ${
-              activeTab === 'supabase'
+            onClick={() => setActiveTab('groq')}
+            className={`px-3 py-2 text-xs font-bold rounded-t-xl transition-all cursor-pointer flex items-center gap-1.5 border-b-2 ${
+              activeTab === 'groq'
                 ? 'bg-white text-blue-900 border-blue-600 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900 border-transparent'
             }`}
           >
-            <Database className="w-4 h-4 text-emerald-600" />
-            <span>Supabase Database</span>
-            {isSupabaseActive && (
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-            )}
+            <Zap className="w-3.5 h-3.5 text-amber-500" />
+            <span>Groq Llama Vision</span>
+            {groqKeyInput && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>}
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('gemini')}
-            className={`px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all cursor-pointer flex items-center gap-2 border-b-2 ${
+            className={`px-3 py-2 text-xs font-bold rounded-t-xl transition-all cursor-pointer flex items-center gap-1.5 border-b-2 ${
               activeTab === 'gemini'
                 ? 'bg-white text-blue-900 border-blue-600 shadow-xs'
                 : 'text-slate-600 hover:text-slate-900 border-transparent'
             }`}
           >
-            <Sparkles className="w-4 h-4 text-amber-500" />
-            <span>Google Gemini AI</span>
-            {keyInput && (
-              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-            )}
+            <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+            <span>Google Gemini</span>
+            {keyInput && <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('openai')}
+            className={`px-3 py-2 text-xs font-bold rounded-t-xl transition-all cursor-pointer flex items-center gap-1.5 border-b-2 ${
+              activeTab === 'openai'
+                ? 'bg-white text-blue-900 border-blue-600 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 border-transparent'
+            }`}
+          >
+            <Cpu className="w-3.5 h-3.5 text-emerald-600" />
+            <span>OpenAI / Router</span>
+            {openAiKeyInput && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('supabase')}
+            className={`px-3 py-2 text-xs font-bold rounded-t-xl transition-all cursor-pointer flex items-center gap-1.5 border-b-2 ${
+              activeTab === 'supabase'
+                ? 'bg-white text-blue-900 border-blue-600 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900 border-transparent'
+            }`}
+          >
+            <Database className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Supabase DB</span>
+            {isSupabaseActive && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
           </button>
         </div>
 
         {/* Content Body */}
         <div className="p-6 space-y-5 overflow-y-auto max-h-[70vh]">
-          {/* TAB 1: SUPABASE CONFIGURATION */}
+          {/* TAB 1: GROQ LLAMA 3.2 VISION CONFIGURATION */}
+          {activeTab === 'groq' && (
+            <div className="space-y-4 animate-fadeIn">
+              {/* Info Banner */}
+              <div className="p-3.5 rounded-xl bg-amber-50/90 border border-amber-200 text-xs text-slate-700 leading-relaxed space-y-1">
+                <div className="font-bold text-amber-950 flex items-center gap-1.5">
+                  <Zap className="w-4 h-4 text-amber-700 shrink-0" />
+                  <span>Groq LPU Vision Engine (Free • Instant 40ms Inference)</span>
+                </div>
+                <p className="text-[11px] text-slate-600">
+                  Groq runs Meta Llama 3.2 Vision (11B & 90B) on ultra-fast LPU chips. Ideal for real-time live camera object tracking and civic defect detection with zero latency.
+                </p>
+              </div>
+
+              {/* Groq Key Input Field */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-800">
+                    Groq API Key:
+                  </label>
+                  <a
+                    href="https://console.groq.com/keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[11px] text-amber-800 hover:text-amber-950 font-semibold flex items-center gap-1"
+                  >
+                    <span>Get Free Key from Groq Console</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type={showGroqKey ? 'text' : 'password'}
+                    value={groqKeyInput}
+                    onChange={(e) => setGroqKeyInput(e.target.value)}
+                    placeholder="gsk_..."
+                    className="gov-input !pr-20 font-mono text-xs"
+                  />
+                  <div className="absolute right-2 top-2 flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowGroqKey(!showGroqKey)}
+                      className="p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer"
+                      title={showGroqKey ? 'Hide key' : 'Show key'}
+                    >
+                      {showGroqKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                    {groqKeyInput && (
+                      <button
+                        type="button"
+                        onClick={handleClearGroq}
+                        className="p-1 text-red-500 hover:text-red-700 rounded cursor-pointer"
+                        title="Remove Groq key"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Test Groq Connection Button & Result */}
+              <div className="space-y-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleTestGroq}
+                  disabled={isTestingGroq || !groqKeyInput.trim()}
+                  className="w-full py-2 px-3 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-950 text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isTestingGroq ? (
+                    <>
+                      <Zap className="w-3.5 h-3.5 animate-spin text-amber-600" />
+                      <span>Testing Groq Vision Connection...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Zap className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Test Groq Llama 3.2 Vision</span>
+                    </>
+                  )}
+                </button>
+
+                {groqTestResult && (
+                  <div
+                    className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 animate-fadeIn ${
+                      groqTestResult.success
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                        : 'bg-red-50 border-red-300 text-red-900'
+                    }`}
+                  >
+                    {groqTestResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    )}
+                    <div>
+                      <div className="font-bold">{groqTestResult.success ? 'Groq Vision Ready!' : 'Groq Connection Error'}</div>
+                      <div className="text-[11px] mt-0.5">{groqTestResult.message}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: OPENAI / OPENROUTER VISION CONFIGURATION */}
+          {activeTab === 'openai' && (
+            <div className="space-y-4 animate-fadeIn">
+              {/* Info Banner */}
+              <div className="p-3.5 rounded-xl bg-emerald-50/90 border border-emerald-200 text-xs text-slate-700 leading-relaxed space-y-1">
+                <div className="font-bold text-emerald-950 flex items-center gap-1.5">
+                  <Cpu className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <span>OpenAI & OpenRouter Multimodal Vision</span>
+                </div>
+                <p className="text-[11px] text-slate-600">
+                  Connect your OpenAI GPT-4o-mini or OpenRouter vision API key to analyze camera feeds and extract structured civic defects.
+                </p>
+              </div>
+
+              {/* OpenAI Key Input Field */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-800">
+                    OpenAI / OpenRouter API Key:
+                  </label>
+                  <a
+                    href="https://platform.openai.com/api-keys"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[11px] text-emerald-800 hover:text-emerald-950 font-semibold flex items-center gap-1"
+                  >
+                    <span>Get Key from OpenAI</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type={showOpenAiKey ? 'text' : 'password'}
+                    value={openAiKeyInput}
+                    onChange={(e) => setOpenAiKeyInput(e.target.value)}
+                    placeholder="sk-..."
+                    className="gov-input !pr-20 font-mono text-xs"
+                  />
+                  <div className="absolute right-2 top-2 flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowOpenAiKey(!showOpenAiKey)}
+                      className="p-1 text-slate-400 hover:text-slate-600 rounded cursor-pointer"
+                      title={showOpenAiKey ? 'Hide key' : 'Show key'}
+                    >
+                      {showOpenAiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                    {openAiKeyInput && (
+                      <button
+                        type="button"
+                        onClick={handleClearOpenAi}
+                        className="p-1 text-red-500 hover:text-red-700 rounded cursor-pointer"
+                        title="Remove key"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Test OpenAI Connection Button & Result */}
+              <div className="space-y-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleTestOpenAi}
+                  disabled={isTestingOpenAi || !openAiKeyInput.trim()}
+                  className="w-full py-2 px-3 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-950 text-xs font-semibold flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isTestingOpenAi ? (
+                    <>
+                      <Cpu className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                      <span>Testing Vision API Connection...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Cpu className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Test OpenAI / OpenRouter Connection</span>
+                    </>
+                  )}
+                </button>
+
+                {openAiTestResult && (
+                  <div
+                    className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 animate-fadeIn ${
+                      openAiTestResult.success
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                        : 'bg-red-50 border-red-300 text-red-900'
+                    }`}
+                  >
+                    {openAiTestResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                    )}
+                    <div>
+                      <div className="font-bold">{openAiTestResult.success ? 'Vision API Connected!' : 'Connection Error'}</div>
+                      <div className="text-[11px] mt-0.5">{openAiTestResult.message}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: SUPABASE CONFIGURATION */}
           {activeTab === 'supabase' && (
             <div className="space-y-4 animate-fadeIn">
               {/* Info Banner */}
