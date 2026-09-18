@@ -43,7 +43,10 @@ import {
   FastForward,
   Key,
   RadioTower,
-  SmartphoneNfc
+  SmartphoneNfc,
+  QrCode,
+  Laptop,
+  WifiOff
 } from 'lucide-react';
 import { 
   detectCivicIssuesInLiveImage, 
@@ -70,7 +73,7 @@ export function LivePhoneCamera({
   onDispatchCluster,
   onOpenApiKeyModal,
   userLocation,
-  initialMode = 'ip_stream' // 'ip_stream', 'phone_device', 'mcd_dashcam', 'ml_benchmark'
+  initialMode = 'ip_stream' // 'ip_stream', 'phone_device', 'custom_video', 'mcd_dashcam', 'ml_benchmark'
 }) {
   const [activeMode, setActiveMode] = useState(initialMode);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -79,14 +82,19 @@ export function LivePhoneCamera({
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
+  const [activeDeviceLabel, setActiveDeviceLabel] = useState('No Camera Connected');
+  const [isMobileDevice, setIsMobileDevice] = useState(false);
   
   // IP Camera Stream State
-  const [ipCameraUrl, setIpCameraUrl] = useState('http://192.168.1.6:8080/video');
+  const defaultHost = typeof window !== 'undefined' ? (window.location.hostname || '192.168.1.6') : '192.168.1.6';
+  const [ipCameraUrl, setIpCameraUrl] = useState(`http://${defaultHost}:8080/video`);
   const [selectedPreset, setSelectedPreset] = useState('ip_webcam_android');
   const [ipConnectStatus, setIpConnectStatus] = useState('idle'); // 'idle' | 'testing' | 'connected' | 'error'
   const [ipErrorMsg, setIpErrorMsg] = useState('');
   const [isSampleVideoActive, setIsSampleVideoActive] = useState(false);
   const [activeStreamType, setActiveStreamType] = useState('video'); // 'video' | 'mjpeg_img'
+  const [showQrModal, setShowQrModal] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // ML Detection State
   const [isAiScanning, setIsAiScanning] = useState(true);
@@ -101,7 +109,7 @@ export function LivePhoneCamera({
   const [fps, setFps] = useState(0);
   const [lastInferenceTimeMs, setLastInferenceTimeMs] = useState(0);
   const [detectionHistory, setDetectionHistory] = useState([]);
-  const [opticalStatus, setOpticalStatus] = useState('Lens waiting for stream');
+  const [opticalStatus, setOpticalStatus] = useState('Camera disconnected / Standby');
 
   // Accelerometer / IMU Telemetry (Smartphone Z-Axis Sensor)
   const [imuActive, setImuActive] = useState(false);
@@ -140,6 +148,15 @@ export function LivePhoneCamera({
   const ipImageRef = useRef(null);
   const streamTrackRef = useRef(null);
   const scanTimerRef = useRef(null);
+  const connectTimeoutRef = useRef(null);
+
+  // Check mobile device environment
+  useEffect(() => {
+    if (typeof navigator !== 'undefined') {
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      setIsMobileDevice(isMobile);
+    }
+  }, []);
 
   // Initialize available video devices
   useEffect(() => {
@@ -192,9 +209,12 @@ export function LivePhoneCamera({
     stopAllStreams();
     setDetections([]);
     setLatestAnalysis(null);
+    setIpErrorMsg('');
 
     if (activeMode === 'phone_device') {
-      startDeviceCamera();
+      // Don't auto-claim phone connected; user or component explicitly triggers camera
+      setIpConnectStatus('idle');
+      setOpticalStatus('Ready to connect device camera');
     } else if (activeMode === 'mcd_dashcam') {
       loadSampleVideo();
     } else if (activeMode === 'custom_video') {
@@ -202,16 +222,21 @@ export function LivePhoneCamera({
         setIsStreaming(true);
         setActiveStreamType('video');
         setIpConnectStatus('connected');
+        setActiveDeviceLabel('Custom Video File');
         videoRef.current.srcObject = null;
         videoRef.current.src = customVideoUrl;
         videoRef.current.play().then(() => setIsVideoPlaying(true)).catch(() => {});
       } else {
         setIsSampleVideoActive(false);
         setIpConnectStatus('idle');
+        setActiveDeviceLabel('No Video Loaded');
+        setOpticalStatus('Select a video file to analyze');
       }
     } else if (activeMode === 'ip_stream') {
       setIsSampleVideoActive(false);
       setIpConnectStatus('idle');
+      setActiveDeviceLabel('Phone IP Camera (Disconnected)');
+      setOpticalStatus('Phone IP Camera Disconnected');
     }
 
     return () => {
@@ -230,6 +255,7 @@ export function LivePhoneCamera({
       setIsStreaming(false);
       setIpConnectStatus('error');
       setIpErrorMsg('Camera access API (getUserMedia) is not supported in this browser or requires HTTPS / localhost.');
+      setActiveDeviceLabel('Camera API Unsupported');
       return;
     }
 
@@ -288,6 +314,7 @@ export function LivePhoneCamera({
       console.warn('All camera initialization strategies failed:', lastError);
       setIsStreaming(false);
       setIpConnectStatus('error');
+      setActiveDeviceLabel('Camera Access Failed');
       if (lastError?.name === 'NotAllowedError' || lastError?.name === 'PermissionDeniedError') {
         setIpErrorMsg('Camera permission was denied. Please allow camera access in your browser address bar permissions.');
       } else if (lastError?.name === 'NotFoundError' || lastError?.name === 'DevicesNotFoundError') {
@@ -327,14 +354,27 @@ export function LivePhoneCamera({
         }
       } catch (e) {}
 
+      const trackLabel = track?.label || '';
+      const isContinuity = trackLabel.toLowerCase().includes('iphone') || trackLabel.toLowerCase().includes('continuity');
+
+      let deviceDesc = 'Laptop Webcam Active';
+      if (isMobileDevice) {
+        deviceDesc = 'Smartphone Camera (Mobile WebRTC)';
+      } else if (isContinuity) {
+        deviceDesc = 'iPhone Continuity Camera Active';
+      } else if (trackLabel) {
+        deviceDesc = `${trackLabel} (Webcam)`;
+      }
+
+      setActiveDeviceLabel(deviceDesc);
       setIsStreaming(true);
       setIsSampleVideoActive(false);
       setActiveStreamType('video');
       setIpConnectStatus('connected');
-      setOpticalStatus('Live Phone Camera Active');
+      setOpticalStatus(isMobileDevice ? 'Live Mobile Camera Active' : 'Live Local Camera Active');
       setFps(30);
-      setActionSuccessMsg('Phone Camera connected and streaming live!');
-      setTimeout(() => setActionSuccessMsg(null), 3000);
+      setActionSuccessMsg(`${deviceDesc} streaming live!`);
+      setTimeout(() => setActionSuccessMsg(null), 3500);
     } catch (playErr) {
       console.warn('Video play error on live camera:', playErr);
       setIsStreaming(true);
@@ -368,39 +408,67 @@ export function LivePhoneCamera({
     } catch (e) {}
 
     setIpErrorMsg('');
+    setIpConnectStatus('testing');
+    setIsStreaming(false);
+    setOpticalStatus(`Connecting to phone stream at ${url}...`);
 
     // If it is a direct video file (like sample videos or mp4/webm stream)
     const isVideoFile = url.endsWith('.mp4') || url.endsWith('.webm') || url.endsWith('.mov') || url.includes('mixkit.co');
 
     if (isVideoFile) {
-      setIpConnectStatus('connected');
-      setIsStreaming(true);
-      setIsSampleVideoActive(url.includes('mixkit.co'));
       setActiveStreamType('video');
-      setOpticalStatus('Connected to video stream');
-      setFps(30);
-
       if (videoRef.current) {
         videoRef.current.srcObject = null;
         videoRef.current.src = url;
         videoRef.current.loop = true;
         videoRef.current.muted = true;
+        videoRef.current.onloadeddata = () => {
+          setIpConnectStatus('connected');
+          setIsStreaming(true);
+          setIsSampleVideoActive(url.includes('mixkit.co'));
+          setActiveDeviceLabel('Network Video Stream');
+          setOpticalStatus('Connected to video stream');
+          setFps(30);
+          setActionSuccessMsg('Connected to video stream successfully!');
+          setTimeout(() => setActionSuccessMsg(null), 3000);
+        };
+        videoRef.current.onerror = () => {
+          setIpConnectStatus('error');
+          setIsStreaming(false);
+          setOpticalStatus('Video stream unreachable');
+          setIpErrorMsg(`Unable to load video stream from ${url}`);
+        };
         videoRef.current.play().then(() => setIsVideoPlaying(true)).catch(e => console.warn(e));
       }
-      setActionSuccessMsg('Connected to video stream successfully!');
-      setTimeout(() => setActionSuccessMsg(null), 3000);
       return;
     }
 
     // For Phone IP Webcam (MJPEG Stream)
-    setIpConnectStatus('connected');
-    setIsStreaming(true);
-    setIsSampleVideoActive(false);
     setActiveStreamType('mjpeg_img');
-    setOpticalStatus('Connecting to Phone IP Camera...');
-    setFps(25);
-    setActionSuccessMsg('Phone IP Camera stream initiated!');
-    setTimeout(() => setActionSuccessMsg(null), 3000);
+    setActiveDeviceLabel('Phone IP Camera (Connecting...)');
+
+    if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
+    
+    // Set a 7-second timeout for IP camera response
+    connectTimeoutRef.current = setTimeout(() => {
+      if (ipConnectStatus !== 'connected') {
+        setIpConnectStatus('error');
+        setIsStreaming(false);
+        setOpticalStatus('Phone stream unreachable');
+        setActiveDeviceLabel('Phone IP Camera (Unreachable)');
+        setIpErrorMsg(
+          `Could not reach phone camera at ${url}.\n` +
+          `1. Ensure phone app (e.g. IP Webcam) is running and "Start server" is active.\n` +
+          `2. Check that both phone and computer are on the same Wi-Fi network.\n` +
+          `3. Alternatively, scan the QR code to run directly on your phone's browser!`
+        );
+      }
+    }, 7000);
+
+    // Trigger image load on ipImageRef
+    if (ipImageRef.current) {
+      ipImageRef.current.src = url;
+    }
   };
 
   // Format seconds into MM:SS
@@ -422,6 +490,7 @@ export function LivePhoneCamera({
     setIsStreaming(true);
     setActiveStreamType('video');
     setIpConnectStatus('connected');
+    setActiveDeviceLabel(`Custom Video: ${file.name}`);
     setOpticalStatus(`Custom Video: ${file.name}`);
     setFps(30);
 
@@ -456,7 +525,7 @@ export function LivePhoneCamera({
       videoRef.current.currentTime = seconds;
       setCustomVideoCurrentTime(seconds);
       setTimeout(() => {
-        runFrameInference();
+        runFrameInference(true);
       }, 100);
     }
   };
@@ -476,6 +545,7 @@ export function LivePhoneCamera({
     setIsStreaming(true);
     setActiveStreamType('video');
     setIpConnectStatus('connected');
+    setActiveDeviceLabel('MCD Patrol Dashcam Simulation');
     setOpticalStatus('MCD Patrol Dashcam Simulation Active');
     setFps(30);
 
@@ -488,18 +558,25 @@ export function LivePhoneCamera({
     }
   };
 
-  // Disconnect stream
+  // Disconnect stream cleanly
   const handleDisconnect = () => {
     stopAllStreams();
     setIpConnectStatus('idle');
     setDetections([]);
     setLatestAnalysis(null);
-    setOpticalStatus('Disconnected');
+    setOpticalStatus('Stream Disconnected');
+    setActiveDeviceLabel('Disconnected');
     setFps(0);
+    setActionSuccessMsg('Camera stream stopped.');
+    setTimeout(() => setActionSuccessMsg(null), 2500);
   };
 
   // Stop camera streams
   const stopAllStreams = () => {
+    if (connectTimeoutRef.current) {
+      clearTimeout(connectTimeoutRef.current);
+      connectTimeoutRef.current = null;
+    }
     if (streamTrackRef.current) {
       streamTrackRef.current.stop();
       streamTrackRef.current = null;
@@ -547,96 +624,120 @@ export function LivePhoneCamera({
 
       ctx.clearRect(0, 0, width, height);
 
-      // 1. Targeting Corner Reticles
-      ctx.strokeStyle = isStreaming ? 'rgba(59, 130, 246, 0.45)' : 'rgba(148, 163, 184, 0.25)';
-      ctx.lineWidth = 2;
-      const pad = 24;
-      const len = 28;
+      // Only draw overlays when streaming is active
+      if (!isStreaming || ipConnectStatus !== 'connected') {
+        return;
+      }
 
+      // 1. Targeting Corner Reticles
+      ctx.strokeStyle = 'rgba(59, 130, 246, 0.4)';
+      ctx.lineWidth = 2;
+      const reticleSize = 24;
+      const margin = 20;
+
+      // Top-Left Reticle
       ctx.beginPath();
-      ctx.moveTo(pad, pad + len); ctx.lineTo(pad, pad); ctx.lineTo(pad + len, pad);
-      ctx.moveTo(width - pad - len, pad); ctx.lineTo(width - pad, pad); ctx.lineTo(width - pad, pad + len);
-      ctx.moveTo(pad, height - pad - len); ctx.lineTo(pad, height - pad); ctx.lineTo(pad + len, height - pad);
-      ctx.moveTo(width - pad - len, height - pad); ctx.lineTo(width - pad, height - pad); ctx.lineTo(width - pad, height - pad - len);
+      ctx.moveTo(margin, margin + reticleSize);
+      ctx.lineTo(margin, margin);
+      ctx.lineTo(margin + reticleSize, margin);
       ctx.stroke();
 
-      // 2. Center AI Crosshair
-      const cx = width / 2;
-      const cy = height / 2;
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+      // Top-Right Reticle
+      ctx.beginPath();
+      ctx.moveTo(width - margin - reticleSize, margin);
+      ctx.lineTo(width - margin, margin);
+      ctx.lineTo(width - margin, margin + reticleSize);
+      ctx.stroke();
+
+      // Bottom-Left Reticle
+      ctx.beginPath();
+      ctx.moveTo(margin, height - margin - reticleSize);
+      ctx.lineTo(margin, height - margin);
+      ctx.lineTo(margin + reticleSize, height - margin);
+      ctx.stroke();
+
+      // Bottom-Right Reticle
+      ctx.beginPath();
+      ctx.moveTo(width - margin - reticleSize, height - margin);
+      ctx.lineTo(width - margin, height - margin);
+      ctx.lineTo(width - margin, height - margin - reticleSize);
+      ctx.stroke();
+
+      // Center Aiming Crosshair
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(cx, cy, 28, 0, 2 * Math.PI);
+      ctx.moveTo(width / 2 - 12, height / 2);
+      ctx.lineTo(width / 2 + 12, height / 2);
+      ctx.moveTo(width / 2, height / 2 - 12);
+      ctx.lineTo(width / 2 + 12, height / 2);
       ctx.stroke();
 
-      // 3. Draw Bounding Boxes with distinct styles for Live Objects vs. Civic Hazards
-      if (isStreaming && detections && detections.length > 0) {
-        const time = Date.now() / 300;
+      // 2. Draw Detected Bounding Boxes
+      if (detections && detections.length > 0) {
+        detections.forEach((det) => {
+          const { bbox, label, confidence, severity, roadPotholeDepthEst } = det;
+          if (!bbox) return;
 
-        detections.forEach((d) => {
-          const bbox = d.bbox || { x: 25, y: 40, w: 40, h: 30 };
           const bx = (bbox.x / 100) * width;
           const by = (bbox.y / 100) * height;
           const bw = (bbox.w / 100) * width;
           const bh = (bbox.h / 100) * height;
 
-          const isHazard = d.isHazard !== undefined ? d.isHazard : (d.severity === 'critical' || d.severity === 'high');
-          const isCritical = d.severity === 'critical';
-          const isHigh = d.severity === 'high';
+          const isCritical = severity === 'critical';
+          const boxColor = isCritical ? 'rgba(239, 68, 68, 0.9)' : 'rgba(245, 158, 11, 0.9)';
+          const fillColor = isCritical ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.12)';
 
-          const strokeColor = isHazard
-            ? (isCritical ? 'rgba(239, 68, 68, 0.95)' : 'rgba(245, 158, 11, 0.95)')
-            : 'rgba(6, 182, 212, 0.95)'; // Cyan for Live Scene Objects
-          const fillColor = isHazard
-            ? (isCritical ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.10)')
-            : 'rgba(6, 182, 212, 0.08)';
-
+          // Fill Box
           ctx.fillStyle = fillColor;
           ctx.fillRect(bx, by, bw, bh);
 
-          ctx.strokeStyle = strokeColor;
+          // Border
+          ctx.strokeStyle = boxColor;
           ctx.lineWidth = 2.5;
-          if (isHazard) {
-            ctx.setLineDash([8, 4]);
-            ctx.lineDashOffset = -time * 5;
-          } else {
-            ctx.setLineDash([]);
-          }
           ctx.strokeRect(bx, by, bw, bh);
-          ctx.setLineDash([]);
 
-          // Corner reticles
-          const cLen = 12;
-          ctx.lineWidth = 3.5;
-          ctx.strokeStyle = strokeColor;
+          // Corner Highlights
+          ctx.lineWidth = 4;
+          const cLen = 8;
           ctx.beginPath();
-          ctx.moveTo(bx, by + cLen); ctx.lineTo(bx, by); ctx.lineTo(bx + cLen, by);
-          ctx.moveTo(bx + bw - cLen, by); ctx.lineTo(bx + bw, by); ctx.lineTo(bx + bw, by + cLen);
-          ctx.moveTo(bx, by + bh - cLen); ctx.lineTo(bx, by + bh); ctx.lineTo(bx + cLen, by + bh);
-          ctx.moveTo(bx + bw - cLen, by + bh); ctx.lineTo(bx + bw, by + bh); ctx.lineTo(bx + bw, by + bh - cLen);
+          ctx.moveTo(bx, by + cLen);
+          ctx.lineTo(bx, by);
+          ctx.lineTo(bx + cLen, by);
+
+          ctx.moveTo(bx + bw - cLen, by);
+          ctx.lineTo(bx + bw, by);
+          ctx.lineTo(bx + bw, by + cLen);
+
+          ctx.moveTo(bx, by + bh - cLen);
+          ctx.lineTo(bx, by + bh);
+          ctx.lineTo(bx + cLen, by + bh);
+
+          ctx.moveTo(bx + bw - cLen, by + bh);
+          ctx.lineTo(bx + bw, by + bh);
+          ctx.lineTo(bx + bw, by + bh - cLen);
           ctx.stroke();
 
-          // Label
-          const prefix = isHazard ? '⚠️ ' : '🎯 ';
-          const labelText = `${prefix}${d.label} • ${d.confidence}%`;
-          ctx.font = 'bold 12px "Outfit", sans-serif';
-          const textMetrics = ctx.measureText(labelText);
-          const bannerWidth = Math.max(textMetrics.width + 16, 110);
-          const bannerHeight = 22;
+          // Label Banner
+          const labelText = `${label.toUpperCase()} • ${confidence}%`;
+          ctx.font = 'bold 11px system-ui, -apple-system, sans-serif';
+          const textWidth = ctx.measureText(labelText).width;
 
-          ctx.fillStyle = strokeColor;
-          ctx.fillRect(bx, Math.max(0, by - bannerHeight), bannerWidth, bannerHeight);
+          ctx.fillStyle = isCritical ? 'rgba(220, 38, 38, 0.95)' : 'rgba(217, 119, 6, 0.95)';
+          ctx.fillRect(bx, Math.max(0, by - 22), textWidth + 14, 22);
 
-          ctx.fillStyle = '#FFFFFF';
-          ctx.fillText(labelText, bx + 8, Math.max(15, by - 6));
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(labelText, bx + 7, Math.max(15, by - 6));
 
-          if (d.roadPotholeDepthEst && isHazard) {
-            const depthText = `Depth: ~${d.roadPotholeDepthEst}`;
-            ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-            ctx.fillRect(bx, by + bh, 140, 20);
-            ctx.fillStyle = '#F59E0B';
-            ctx.font = 'bold 11px monospace';
-            ctx.fillText(depthText, bx + 6, by + bh + 14);
+          // Depth Estimate Badge
+          if (roadPotholeDepthEst) {
+            const depthText = `Depth: ${roadPotholeDepthEst}`;
+            ctx.font = 'bold 10px monospace';
+            const depthWidth = ctx.measureText(depthText).width;
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.9)';
+            ctx.fillRect(bx, by + bh, depthWidth + 10, 18);
+            ctx.fillStyle = '#38bdf8';
+            ctx.fillText(depthText, bx + 5, by + bh + 13);
           }
         });
       }
@@ -648,11 +749,11 @@ export function LivePhoneCamera({
     return () => {
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
     };
-  }, [detections, isStreaming]);
+  }, [detections, isStreaming, ipConnectStatus]);
 
   // Capture current live frame & validate optical luminance
   const captureCurrentFrameBase64 = useCallback(() => {
-    if (!isStreaming) return null;
+    if (!isStreaming || ipConnectStatus !== 'connected') return null;
 
     try {
       const hiddenCanvas = hiddenCanvasRef.current || document.createElement('canvas');
@@ -713,11 +814,17 @@ export function LivePhoneCamera({
       console.warn('Frame capture error:', e);
       return null;
     }
-  }, [isStreaming, activeStreamType]);
+  }, [isStreaming, ipConnectStatus, activeStreamType]);
 
   // Run AI ML Inference on the current live frame
   const runFrameInference = useCallback(async (forceImmediate = false) => {
-    if (isAnalyzingFrame || !isStreaming) return;
+    if (isAnalyzingFrame || !isStreaming || ipConnectStatus !== 'connected') {
+      if (forceImmediate && (!isStreaming || ipConnectStatus !== 'connected')) {
+        setActionSuccessMsg('Please start a camera stream first before scanning.');
+        setTimeout(() => setActionSuccessMsg(null), 3000);
+      }
+      return;
+    }
     setIsAnalyzingFrame(true);
 
     try {
@@ -768,13 +875,13 @@ export function LivePhoneCamera({
     } finally {
       setIsAnalyzingFrame(false);
     }
-  }, [isAnalyzingFrame, isStreaming, captureCurrentFrameBase64, selectedModel, sensitivity, isSampleVideoActive, soundAlerts, detectionRate]);
+  }, [isAnalyzingFrame, isStreaming, ipConnectStatus, captureCurrentFrameBase64, selectedModel, sensitivity, isSampleVideoActive, soundAlerts, detectionRate]);
 
   // Periodic AI Scanning Loop
   useEffect(() => {
     if (scanTimerRef.current) clearInterval(scanTimerRef.current);
 
-    if (isAiScanning && isStreaming) {
+    if (isAiScanning && isStreaming && ipConnectStatus === 'connected') {
       scanTimerRef.current = setInterval(() => {
         runFrameInference();
       }, scanIntervalSec * 1000);
@@ -783,7 +890,7 @@ export function LivePhoneCamera({
     return () => {
       if (scanTimerRef.current) clearInterval(scanTimerRef.current);
     };
-  }, [isAiScanning, isStreaming, scanIntervalSec, runFrameInference]);
+  }, [isAiScanning, isStreaming, ipConnectStatus, scanIntervalSec, runFrameInference]);
 
   // Manually Inject a Test Pothole Anomaly to verify HUD & Telemetry
   const handleInjectTestAnomaly = () => {
@@ -801,62 +908,52 @@ export function LivePhoneCamera({
     ];
     setDetections(testDet);
     if (soundAlerts) playDetectionBeep('critical');
-    setActionSuccessMsg('Injected test pothole anomaly: Bounding box HUD & audio alert verified!');
-    setTimeout(() => setActionSuccessMsg(null), 3500);
+    setActionSuccessMsg('Test Pothole anomaly injected onto HUD canvas.');
+    setTimeout(() => setActionSuccessMsg(null), 3000);
   };
 
-  // Register Live Camera into Municipal CCTV Grid
-  const handleRegisterAsCctv = async () => {
-    const newCamera = {
+  // Register active camera as a municipal sentinel node
+  const handleRegisterAsCctv = () => {
+    if (!isStreaming) return;
+    
+    const newCam = {
       id: `CAM-LIVE-${Math.floor(100 + Math.random() * 900)}`,
-      name: activeMode === 'mcd_dashcam' 
-        ? `${selectedVehicle.name} (Live Dashcam)`
-        : `Phone Sentinel Node (${cameraFacingMode === 'environment' ? 'Rear Cam' : 'Front Cam'})`,
-      location: activeMode === 'mcd_dashcam' 
-        ? selectedVehicle.currentLocation 
-        : (userLocation?.locality || 'Live Mobile Streamer'),
-      lat: activeMode === 'mcd_dashcam' ? selectedVehicle.lat : (userLocation?.lat || 12.9716),
-      lng: activeMode === 'mcd_dashcam' ? selectedVehicle.lng : (userLocation?.lng || 77.5946),
+      name: activeMode === 'phone_device' ? 'Field Smartphone Sentinel' : 'Patrol Dashcam Node',
+      sourceType: activeMode === 'phone_device' ? 'Mobile WebRTC Phone' : 'IP Stream Sentinel',
+      lat: userLocation?.lat || 12.9716,
+      lng: userLocation?.lng || 77.5946,
+      locality: userLocation?.locality || 'Civil Lines Ward Grid',
       status: 'active',
-      aiDetection: detections[0] || {
-        type: 'Active Live Stream',
-        confidence: 95,
-        severity: 'high',
-        bbox: { x: 25, y: 45, w: 40, h: 30 },
-        details: 'Live AI Camera Vision Node registered by operator.'
-      },
-      lastPing: 'Just now',
-      streamQuality: '1080p 30fps'
+      fps: fps || 30,
+      mlModel: selectedModel,
+      detectionCount: detectionHistory.length,
+      lastPing: 'Just now'
     };
 
-    if (onRegisterCamera) {
-      onRegisterCamera(newCamera);
-    }
-
-    setActionSuccessMsg(`Live Camera registered to Municipal CCTV Grid as "${newCamera.name}"!`);
+    if (onRegisterCamera) onRegisterCamera(newCam);
+    setActionSuccessMsg(`Camera registered as Municipal Sentinel Node [${newCam.id}]!`);
     setTimeout(() => setActionSuccessMsg(null), 4000);
   };
 
-  // 1-Click Auto-Log as Citizen Report
-  const handleAutoLogReport = async (det) => {
-    const frame = captureCurrentFrameBase64();
-    const reportData = {
-      title: `Live Flagged: ${det.label}`,
-      category: det.category,
-      location: activeMode === 'mcd_dashcam' ? selectedVehicle.currentLocation : (userLocation?.locality || 'Civil Lines Ward Area'),
-      lat: activeMode === 'mcd_dashcam' ? selectedVehicle.lat : (userLocation?.lat || 12.9716),
-      lng: activeMode === 'mcd_dashcam' ? selectedVehicle.lng : (userLocation?.lng || 77.5946),
-      assignedDept: det.category === 'Roads & Potholes' ? 'Roads & Bridges Dept' : 'Solid Waste Management',
-      scoreEarned: 35,
-      mediaType: 'photo',
-      mediaUrl: frame || 'https://images.unsplash.com/photo-1515162816999-a0c47dc192f7?auto=format&fit=crop&w=800&q=80',
-      potholeDepthEst: det.roadPotholeDepthEst
+  // Auto-log a civic report from real-time detection
+  const handleAutoLogReport = (detection) => {
+    const report = {
+      id: `REP-LIVE-${Date.now()}`,
+      title: `${detection.label} (AI Live Camera)`,
+      category: detection.category || 'Roads & Potholes',
+      severity: detection.severity || 'high',
+      confidence: detection.confidence || 88,
+      status: 'PENDING_TRIAGE',
+      locality: userLocation?.locality || 'Civil Lines Ward Grid',
+      lat: userLocation?.lat || 12.9716,
+      lng: userLocation?.lng || 77.5946,
+      description: `${detection.description} (Depth Est: ${detection.roadPotholeDepthEst || 'N/A'}). Auto-logged by Civix Live Sentinel.`,
+      suggestedAction: detection.suggestedAction || 'Inspect and dispatch road maintenance unit.',
+      createdAt: new Date().toISOString(),
+      source: 'Mobile Live Camera AI'
     };
 
-    if (onAddReport) {
-      onAddReport(reportData);
-    }
-
+    if (onAddReport) onAddReport(report);
     setActionSuccessMsg(`Report logged & correlated to municipal problem cluster (+35 CivicScore pts)!`);
     setTimeout(() => setActionSuccessMsg(null), 4000);
   };
@@ -865,6 +962,17 @@ export function LivePhoneCamera({
   const handleRunIotDiagnosis = () => {
     const res = analyzeStreetlightTelemetry(iotVoltage, iotCurrent, 0.92, iotLux);
     setIotDiagnosis(res);
+  };
+
+  // Local Wi-Fi Pairing URL for phone
+  const mobileWebUrl = typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:5173` : 'http://localhost:5173';
+
+  const copyMobileLink = () => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(mobileWebUrl);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    }
   };
 
   return (
@@ -883,28 +991,49 @@ export function LivePhoneCamera({
                   Live AI Camera & Edge Vision Sentinel Hub
                 </h2>
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold flex items-center gap-1 ${
-                  isStreaming 
+                  isStreaming && ipConnectStatus === 'connected'
                     ? 'bg-emerald-500/20 border border-emerald-400/40 text-emerald-300' 
+                    : ipConnectStatus === 'testing'
+                    ? 'bg-amber-500/20 border border-amber-400/40 text-amber-300'
                     : 'bg-slate-700/50 border border-slate-600 text-slate-300'
                 }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${isStreaming ? 'bg-emerald-400 live-pulse' : 'bg-slate-400'}`}></span>
-                  {isStreaming ? 'Stream Active' : 'Standby / Disconnected'}
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    isStreaming && ipConnectStatus === 'connected' 
+                      ? 'bg-emerald-400 live-pulse' 
+                      : ipConnectStatus === 'testing'
+                      ? 'bg-amber-400 animate-ping'
+                      : 'bg-slate-400'
+                  }`}></span>
+                  {isStreaming && ipConnectStatus === 'connected' 
+                    ? 'Stream Active' 
+                    : ipConnectStatus === 'testing' 
+                    ? 'Connecting...' 
+                    : 'Standby / Disconnected'}
                 </span>
               </div>
               <p className="text-xs text-blue-200">
-                Phone IP Streaming • Gemini Multimodal Vision • YOLOv12 Edge Detection • IMU Shock Telemetry
+                Active Source: <strong className="text-white">{activeDeviceLabel}</strong> • {getActiveVisionProvider().toUpperCase()} Vision
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowQrModal(true)}
+              className="px-3 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/30 text-xs font-semibold text-indigo-200 flex items-center gap-1.5 transition-all cursor-pointer"
+              title="Scan QR Code to open on Phone Camera"
+            >
+              <QrCode className="w-3.5 h-3.5 text-indigo-300" />
+              <span>Connect Phone (QR)</span>
+            </button>
+
+            <button
               onClick={() => onOpenApiKeyModal ? onOpenApiKeyModal() : setShowPairingGuide(true)}
               className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/30 text-xs font-semibold text-amber-200 flex items-center gap-1.5 transition-all cursor-pointer"
-              title="Configure Google Gemini API Key"
+              title="Configure Vision AI Model API Key (Groq, Gemini, OpenAI)"
             >
               <Key className="w-3.5 h-3.5 text-amber-300" />
-              <span>{hasValidApiKey() ? 'API Key Configured' : 'Set Gemini API Key'}</span>
+              <span>{hasValidApiKey() ? 'API Keys Active' : 'Set AI API Keys'}</span>
             </button>
 
             <button
@@ -912,7 +1041,7 @@ export function LivePhoneCamera({
               className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-semibold text-white flex items-center gap-1.5 transition-all cursor-pointer"
             >
               <Smartphone className="w-3.5 h-3.5 text-blue-300" />
-              <span>Phone Setup Guide</span>
+              <span>Phone Guide</span>
             </button>
 
             <button
@@ -924,9 +1053,9 @@ export function LivePhoneCamera({
           </div>
         </div>
 
-        {/* 4 CORE NAVIGATION MODES */}
-        <div className="p-2 bg-slate-100 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
-          <div className="flex flex-wrap items-center gap-1.5">
+        {/* MODE NAVIGATION TABS */}
+        <div className="bg-slate-100 border-b border-slate-200 px-4 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
             {/* Mode 1: IP Camera Stream */}
             <button
               onClick={() => setActiveMode('ip_stream')}
@@ -937,7 +1066,7 @@ export function LivePhoneCamera({
               }`}
             >
               <Wifi className="w-3.5 h-3.5" />
-              <span>1. Phone IP Camera Stream</span>
+              <span>1. Phone IP Camera (App Stream)</span>
             </button>
 
             {/* Mode 2: Direct Device / Phone Camera */}
@@ -950,7 +1079,7 @@ export function LivePhoneCamera({
               }`}
             >
               <Camera className="w-3.5 h-3.5" />
-              <span>2. Phone / Web Camera (WebRTC)</span>
+              <span>2. Direct Device Camera (WebRTC)</span>
             </button>
 
             {/* Mode 3: Custom Video File AI Analyzer */}
@@ -963,7 +1092,7 @@ export function LivePhoneCamera({
               }`}
             >
               <Upload className="w-3.5 h-3.5" />
-              <span>3. Upload & Inspect Video File</span>
+              <span>3. Upload Video File</span>
             </button>
 
             {/* Mode 4: MCD Vehicle Mobile Dashcam */}
@@ -976,7 +1105,7 @@ export function LivePhoneCamera({
               }`}
             >
               <Car className="w-3.5 h-3.5" />
-              <span>4. MCD Vehicle Mobile Dashcam</span>
+              <span>4. MCD Dashcam Sim</span>
             </button>
 
             {/* Mode 5: ML Model Test Bench */}
@@ -1001,7 +1130,7 @@ export function LivePhoneCamera({
             <span>•</span>
             <span className="flex items-center gap-1">
               <Cpu className={`w-3 h-3 ${hasValidApiKey() ? 'text-emerald-600' : 'text-blue-600'}`} />
-              AI Vision Engine: <strong className={hasValidApiKey() ? 'text-emerald-700 font-bold' : 'text-slate-700 font-bold'}>
+              Vision Engine: <strong className={hasValidApiKey() ? 'text-emerald-700 font-bold' : 'text-slate-700 font-bold'}>
                 {getActiveVisionProvider().toUpperCase()}
               </strong>
             </span>
@@ -1030,17 +1159,17 @@ export function LivePhoneCamera({
             {/* TOP HUD STATUS BAR OVER VIDEO */}
             <div className="absolute top-6 left-6 right-6 z-20 flex items-center justify-between pointer-events-none">
               <div className="flex items-center gap-2 bg-slate-900/80 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-700/60 text-white text-xs shadow-lg">
-                <span className={`w-2 h-2 rounded-full ${isStreaming ? 'bg-red-500 live-pulse' : 'bg-slate-500'}`}></span>
+                <span className={`w-2 h-2 rounded-full ${isStreaming && ipConnectStatus === 'connected' ? 'bg-red-500 live-pulse' : 'bg-slate-500'}`}></span>
                 <span className="font-mono font-bold tracking-wider">
-                  {isStreaming ? 'LIVE REC' : 'OFFLINE'}
+                  {isStreaming && ipConnectStatus === 'connected' ? 'LIVE FEED' : 'STANDBY'}
                 </span>
                 <span className="text-slate-400">|</span>
                 <span className="text-[11px] text-slate-300 font-mono">
-                  {fps} FPS
+                  {isStreaming && ipConnectStatus === 'connected' ? `${fps} FPS` : '0 FPS'}
                 </span>
                 <span className="text-slate-400">|</span>
-                <span className="text-[11px] text-blue-300">
-                  {activeMode === 'mcd_dashcam' ? selectedVehicle.name : 'Sentinel Node'}
+                <span className="text-[11px] text-blue-300 max-w-[160px] truncate">
+                  {activeDeviceLabel}
                 </span>
               </div>
 
@@ -1072,7 +1201,7 @@ export function LivePhoneCamera({
             {/* VIDEO & CANVAS CONTAINER */}
             <div className="relative w-full h-full flex items-center justify-center rounded-xl overflow-hidden bg-slate-900 border border-slate-800 my-auto">
               
-              {!isStreaming && (
+              {(!isStreaming || ipConnectStatus !== 'connected') && (
                 <div className="text-center p-6 space-y-4 max-w-md z-10">
                   <div className="w-16 h-16 rounded-2xl bg-slate-800/80 border border-slate-700 flex items-center justify-center mx-auto text-blue-400 shadow-inner">
                     {activeMode === 'ip_stream' ? (
@@ -1088,16 +1217,24 @@ export function LivePhoneCamera({
 
                   <div>
                     <h3 className="text-base font-bold text-white font-['Outfit']">
-                      {activeMode === 'ip_stream' && 'Phone IP Camera Disconnected'}
-                      {activeMode === 'phone_device' && 'Phone Camera Ready'}
+                      {activeMode === 'ip_stream' && (ipConnectStatus === 'testing' ? 'Connecting to Phone Camera...' : 'Phone IP Camera Disconnected')}
+                      {activeMode === 'phone_device' && 'Direct Camera Lens Ready'}
                       {activeMode === 'custom_video' && 'Custom Video AI Inspector'}
                       {activeMode === 'mcd_dashcam' && 'MCD Patrol Dashcam Ready'}
                       {activeMode === 'ml_benchmark' && 'ML Model Test Bench Active'}
                     </h3>
                     <p className="text-xs text-slate-400 mt-1">
-                      {activeMode === 'ip_stream' && 'Enter your phone IP address on the right panel and tap Connect to stream live video.'}
-                      {activeMode === 'phone_device' && 'Grant browser camera permission to stream directly with your phone or laptop lens.'}
-                      {activeMode === 'custom_video' && 'Select any MP4, WebM, or MOV video file to run continuous real-time AI computer vision on every frame.'}
+                      {activeMode === 'ip_stream' && (
+                        ipConnectStatus === 'testing'
+                          ? `Attempting handshake with ${ipCameraUrl}... Please ensure server is running.`
+                          : 'Enter your phone IP webcam address on the right panel or scan QR code to stream directly.'
+                      )}
+                      {activeMode === 'phone_device' && (
+                        isMobileDevice
+                          ? 'Tap Start Camera to open your phone rear lens with real-time IMU shock detection.'
+                          : 'Tap Start Camera to use this device webcam, or scan QR code to use your phone camera.'
+                      )}
+                      {activeMode === 'custom_video' && 'Select any MP4, WebM, or MOV video file to run continuous real-time AI computer vision.'}
                       {activeMode === 'mcd_dashcam' && 'Click Start Dashcam Stream to inspect municipal patrol road footage.'}
                     </p>
                   </div>
@@ -1106,9 +1243,9 @@ export function LivePhoneCamera({
                     <div className="p-3 rounded-lg bg-red-950/60 border border-red-800/80 text-red-200 text-xs text-left">
                       <div className="flex items-center gap-1.5 font-bold mb-1">
                         <AlertTriangle className="w-4 h-4 text-red-400" />
-                        <span>Connection Issue:</span>
+                        <span>Connection Notice:</span>
                       </div>
-                      <p>{ipErrorMsg}</p>
+                      <p className="whitespace-pre-line text-[11px] leading-relaxed">{ipErrorMsg}</p>
                     </div>
                   )}
 
@@ -1131,12 +1268,24 @@ export function LivePhoneCamera({
                       </>
                     )}
                     {activeMode === 'phone_device' && (
-                      <button
-                        onClick={startDeviceCamera}
-                        className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all cursor-pointer"
-                      >
-                        Start Phone Camera
-                      </button>
+                      <div className="flex flex-col sm:flex-row items-center gap-2">
+                        <button
+                          onClick={startDeviceCamera}
+                          disabled={ipConnectStatus === 'testing'}
+                          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          {ipConnectStatus === 'testing' ? 'Starting Camera...' : 'Start Device Camera'}
+                        </button>
+                        {!isMobileDevice && (
+                          <button
+                            onClick={() => setShowQrModal(true)}
+                            className="px-3 py-2 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-400/40 text-indigo-200 text-xs font-semibold transition-all cursor-pointer flex items-center gap-1"
+                          >
+                            <QrCode className="w-3.5 h-3.5" />
+                            <span>Pair Phone via QR</span>
+                          </button>
+                        )}
+                      </div>
                     )}
                     {activeMode === 'mcd_dashcam' && (
                       <button
@@ -1147,13 +1296,23 @@ export function LivePhoneCamera({
                       </button>
                     )}
                     {activeMode === 'ip_stream' && (
-                      <button
-                        onClick={handleConnectIpCamera}
-                        disabled={ipConnectStatus === 'testing'}
-                        className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all cursor-pointer disabled:opacity-50"
-                      >
-                        {ipConnectStatus === 'testing' ? 'Testing Connection...' : 'Connect to Phone Camera'}
-                      </button>
+                      <div className="flex flex-col sm:flex-row items-center gap-2">
+                        <button
+                          onClick={handleConnectIpCamera}
+                          disabled={ipConnectStatus === 'testing'}
+                          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          <Wifi className="w-3.5 h-3.5" />
+                          <span>{ipConnectStatus === 'testing' ? 'Verifying Stream...' : 'Connect to Phone Camera'}</span>
+                        </button>
+                        <button
+                          onClick={() => setShowQrModal(true)}
+                          className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition-all cursor-pointer flex items-center gap-1"
+                        >
+                          <QrCode className="w-3.5 h-3.5" />
+                          <span>QR Pair (Zero App)</span>
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1169,26 +1328,34 @@ export function LivePhoneCamera({
                 onTimeUpdate={(e) => setCustomVideoCurrentTime(e.target.currentTime || 0)}
                 onPlay={() => setIsVideoPlaying(true)}
                 onPause={() => setIsVideoPlaying(false)}
-                className={`w-full h-full object-contain ${activeStreamType === 'video' && isStreaming ? 'block' : 'hidden'}`}
+                className={`w-full h-full object-contain ${activeStreamType === 'video' && isStreaming && ipConnectStatus === 'connected' ? 'block' : 'hidden'}`}
               />
 
-              {/* MJPEG Image Stream (No crossOrigin="anonymous" to ensure local phone IP servers render smoothly) */}
+              {/* MJPEG Image Stream */}
               <img
                 ref={ipImageRef}
                 alt="Phone IP Stream"
-                src={isStreaming && activeStreamType === 'mjpeg_img' ? ipCameraUrl : ''}
                 onLoad={() => {
+                  if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
                   setIpConnectStatus('connected');
+                  setIsStreaming(true);
+                  setActiveDeviceLabel('Phone IP Camera (Live MJPEG)');
                   setOpticalStatus('Connected to phone IP stream (MJPEG)');
+                  setFps(25);
+                  setActionSuccessMsg('Phone IP Camera stream connected successfully!');
+                  setTimeout(() => setActionSuccessMsg(null), 3000);
                 }}
                 onError={() => {
-                  if (activeStreamType === 'mjpeg_img' && isStreaming) {
+                  if (connectTimeoutRef.current) clearTimeout(connectTimeoutRef.current);
+                  if (activeStreamType === 'mjpeg_img') {
                     setIpConnectStatus('error');
+                    setIsStreaming(false);
+                    setActiveDeviceLabel('Phone IP Camera (Disconnected)');
                     setOpticalStatus('Phone stream unreachable');
                     setIpErrorMsg(`Unable to reach phone stream at ${ipCameraUrl}. Please check that the IP Webcam app is running ("Start server") and both devices are on the same Wi-Fi.`);
                   }
                 }}
-                className={`w-full h-full object-contain ${activeStreamType === 'mjpeg_img' && isStreaming ? 'block' : 'hidden'}`}
+                className={`w-full h-full object-contain ${activeStreamType === 'mjpeg_img' && isStreaming && ipConnectStatus === 'connected' ? 'block' : 'hidden'}`}
               />
 
               {/* AI Bounding Box HUD Overlay Canvas */}
@@ -1204,7 +1371,7 @@ export function LivePhoneCamera({
 
               {/* Live Optical Status Pill */}
               <div className="absolute bottom-3 left-3 z-20 bg-slate-900/80 backdrop-blur-md px-2.5 py-1 rounded-md border border-slate-700 text-[10px] text-slate-300 font-mono flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                <span className={`w-1.5 h-1.5 rounded-full ${isStreaming && ipConnectStatus === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
                 <span>{opticalStatus}</span>
               </div>
             </div>
@@ -1248,55 +1415,62 @@ export function LivePhoneCamera({
                     </span>
                   </div>
 
-                  {/* Speed Controls */}
-                  <div className="flex items-center gap-0.5 bg-slate-800 p-0.5 rounded-lg text-[10px] font-bold shrink-0">
-                    {[0.5, 1.0, 1.5, 2.0].map((spd) => (
+                  {/* Speed Selector */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {[0.5, 1, 1.5, 2].map((sp) => (
                       <button
-                        key={spd}
-                        onClick={() => handleSpeedChange(spd)}
-                        className={`px-1.5 py-0.5 rounded transition-all cursor-pointer ${
-                          playbackSpeed === spd ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+                        key={sp}
+                        onClick={() => handleSpeedChange(sp)}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold font-mono transition-all cursor-pointer ${
+                          playbackSpeed === sp ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
                         }`}
                       >
-                        {spd}x
+                        {sp}x
                       </button>
                     ))}
                   </div>
+
+                  {/* Loop Button */}
+                  <button
+                    onClick={() => setIsLooping(!isLooping)}
+                    className={`p-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                      isLooping ? 'bg-blue-600/30 text-blue-400 border border-blue-500/40' : 'bg-slate-800 text-slate-400'
+                    }`}
+                    title={isLooping ? 'Looping enabled' : 'Looping disabled'}
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLooping ? 'animate-spin-slow' : ''}`} />
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* BOTTOM HUD ACTION CONTROLS */}
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800 text-xs shrink-0">
+            {/* BOTTOM HUD ACTION BAR */}
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setIsAiScanning(!isAiScanning)}
-                  disabled={!isStreaming}
-                  className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 ${
-                    isAiScanning && isStreaming
-                      ? 'bg-blue-600 text-white shadow-xs'
-                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  className={`px-3 py-1.5 rounded-lg font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                    isAiScanning ? 'bg-emerald-600 hover:bg-emerald-700 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
                   }`}
                 >
                   <Activity className="w-3.5 h-3.5" />
-                  <span>{isAiScanning && isStreaming ? 'AI Auto-Scanning (ON)' : 'AI Scanning (OFF)'}</span>
+                  <span>{isAiScanning ? 'AI Scanning: ACTIVE' : 'AI Scanning: PAUSED'}</span>
                 </button>
 
                 <button
                   onClick={() => runFrameInference(true)}
-                  disabled={!isStreaming || isAnalyzingFrame}
-                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40 shadow-xs"
-                  title="Scan live camera viewfinder now and detect objects / defects immediately"
+                  disabled={!isStreaming || isAnalyzingFrame || ipConnectStatus !== 'connected'}
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs disabled:opacity-40"
+                  title="Force an immediate AI defect detection on the current camera frame"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isAnalyzingFrame ? 'animate-spin text-white' : ''}`} />
-                  <span>{isAnalyzingFrame ? 'Scanning...' : 'Scan Frame Now'}</span>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>{isAnalyzingFrame ? 'Analyzing Frame...' : 'Scan Frame Now'}</span>
                 </button>
 
                 <button
                   onClick={handleInjectTestAnomaly}
-                  disabled={!isStreaming}
-                  className="px-3 py-1.5 rounded-lg bg-indigo-900/60 hover:bg-indigo-800 text-indigo-200 border border-indigo-700/60 font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-40"
-                  title="Inject test pothole bounding box to verify HUD & sound"
+                  className="px-2.5 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-slate-300 font-semibold flex items-center gap-1.5 transition-all cursor-pointer"
+                  title="Inject test pothole bounding box to verify HUD"
                 >
                   <FlaskConical className="w-3.5 h-3.5 text-indigo-300" />
                   <span>Test Anomaly</span>
@@ -1304,7 +1478,7 @@ export function LivePhoneCamera({
               </div>
 
               <div className="flex items-center gap-2">
-                {isStreaming && (
+                {isStreaming && ipConnectStatus === 'connected' && (
                   <button
                     onClick={handleDisconnect}
                     className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-red-900/40 text-red-300 border border-red-800/40 font-bold transition-all cursor-pointer"
@@ -1315,11 +1489,11 @@ export function LivePhoneCamera({
 
                 <button
                   onClick={handleRegisterAsCctv}
-                  disabled={!isStreaming}
+                  disabled={!isStreaming || ipConnectStatus !== 'connected'}
                   className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs disabled:opacity-40"
                 >
                   <RadioTower className="w-3.5 h-3.5" />
-                  <span>Register as Municipal Sentinel</span>
+                  <span>Register as Sentinel</span>
                 </button>
               </div>
             </div>
@@ -1345,7 +1519,7 @@ export function LivePhoneCamera({
                       ipConnectStatus === 'error' ? 'bg-red-100 text-red-800' :
                       'bg-slate-100 text-slate-600'
                     }`}>
-                      {ipConnectStatus.toUpperCase()}
+                      {ipConnectStatus === 'connected' ? 'CONNECTED' : ipConnectStatus === 'testing' ? 'CONNECTING...' : ipConnectStatus === 'error' ? 'DISCONNECTED' : 'STANDBY'}
                     </span>
                   </div>
 
@@ -1360,7 +1534,7 @@ export function LivePhoneCamera({
                         const preset = IP_CAMERA_PRESETS.find(p => p.id === e.target.value);
                         if (preset) {
                           if (preset.defaultPort) {
-                            setIpCameraUrl(`http://192.168.1.6:${preset.defaultPort}${preset.videoPath}`);
+                            setIpCameraUrl(`http://${defaultHost}:${preset.defaultPort}${preset.videoPath}`);
                           } else if (preset.videoPath) {
                             setIpCameraUrl(preset.videoPath);
                           }
@@ -1382,22 +1556,32 @@ export function LivePhoneCamera({
                       type="text"
                       value={ipCameraUrl}
                       onChange={(e) => setIpCameraUrl(e.target.value)}
-                      placeholder="http://192.168.1.6:8080/video"
+                      placeholder={`http://${defaultHost}:8080/video`}
                       className="w-full text-xs p-2.5 rounded-lg border border-slate-300 font-mono text-slate-800 focus:outline-blue-600"
                     />
                     <p className="text-[10px] text-slate-500 mt-1">
-                      Open <strong>IP Webcam</strong> app on phone, tap "Start server", and enter the displayed IP.
+                      Open <strong>IP Webcam</strong> on phone, tap "Start server", and enter displayed IP.
                     </p>
                   </div>
 
-                  <button
-                    onClick={handleConnectIpCamera}
-                    disabled={ipConnectStatus === 'testing'}
-                    className="w-full py-2.5 rounded-lg bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs disabled:opacity-50"
-                  >
-                    <Wifi className="w-4 h-4" />
-                    <span>{ipConnectStatus === 'testing' ? 'Verifying Stream...' : 'Connect & Stream Phone Camera'}</span>
-                  </button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={handleConnectIpCamera}
+                      disabled={ipConnectStatus === 'testing'}
+                      className="py-2.5 px-3 rounded-lg bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs disabled:opacity-50"
+                    >
+                      <Wifi className="w-3.5 h-3.5" />
+                      <span>{ipConnectStatus === 'testing' ? 'Verifying...' : 'Connect Stream'}</span>
+                    </button>
+
+                    <button
+                      onClick={() => setShowQrModal(true)}
+                      className="py-2.5 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border border-slate-300"
+                    >
+                      <QrCode className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Scan Mobile QR</span>
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -1407,40 +1591,74 @@ export function LivePhoneCamera({
                   <div className="flex items-center justify-between">
                     <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
                       <Camera className="w-4 h-4 text-blue-600" />
-                      Direct Phone / Web Camera (WebRTC)
+                      Direct Camera Lens (WebRTC)
                     </h3>
-                    <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                      DIRECT LENS
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                      isStreaming && ipConnectStatus === 'connected' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {isStreaming && ipConnectStatus === 'connected' ? 'ACTIVE' : 'READY'}
                     </span>
                   </div>
 
+                  {!isMobileDevice && (
+                    <div className="p-3 bg-indigo-50/70 rounded-lg border border-indigo-200 text-xs space-y-1.5">
+                      <div className="flex items-center gap-1.5 font-bold text-indigo-900">
+                        <Smartphone className="w-4 h-4 text-indigo-600" />
+                        <span>Want to stream from your Phone instead?</span>
+                      </div>
+                      <p className="text-[11px] text-indigo-800">
+                        You are currently on a computer browser. Scan the QR code to open Civix directly on your phone's browser with rear camera zoom & shock sensors!
+                      </p>
+                      <button
+                        onClick={() => setShowQrModal(true)}
+                        className="px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[11px] flex items-center gap-1 cursor-pointer"
+                      >
+                        <QrCode className="w-3 h-3" />
+                        <span>Open Mobile QR Pairer</span>
+                      </button>
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                      Camera Device Input (iPhone Continuity / Built-in):
+                      Camera Device Input Lens:
                     </label>
                     <select
                       value={selectedDeviceId}
                       onChange={(e) => setSelectedDeviceId(e.target.value)}
                       className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-slate-50 font-medium text-slate-800 focus:outline-blue-600"
                     >
-                      {availableDevices.map((d, idx) => (
-                        <option key={d.deviceId || idx} value={d.deviceId}>
-                          {d.label || `Camera ${idx + 1}`}
-                        </option>
-                      ))}
+                      {availableDevices.length > 0 ? (
+                        availableDevices.map((d, idx) => (
+                          <option key={d.deviceId || idx} value={d.deviceId}>
+                            {d.label || `Camera Device ${idx + 1}`}
+                          </option>
+                        ))
+                      ) : (
+                        <option value="">Default System Camera</option>
+                      )}
                     </select>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={startDeviceCamera}
+                      disabled={ipConnectStatus === 'testing'}
+                      className="py-2.5 px-3 rounded-lg bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs disabled:opacity-50"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                      <span>{isStreaming && ipConnectStatus === 'connected' ? 'Restart Camera' : 'Start Camera'}</span>
+                    </button>
+
                     <button
                       onClick={() => {
                         setCameraFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
                         setSelectedDeviceId('');
                       }}
-                      className="flex-1 py-2 rounded-lg border border-slate-300 hover:bg-slate-100 text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5 cursor-pointer"
+                      className="py-2.5 px-3 rounded-lg border border-slate-300 hover:bg-slate-100 text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <RefreshCw className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Flip: {cameraFacingMode === 'environment' ? 'Rear (Back Cam)' : 'Front (Selfie)'}</span>
+                      <span>Flip: {cameraFacingMode === 'environment' ? 'Rear (Back)' : 'Front (Selfie)'}</span>
                     </button>
                   </div>
                 </div>
@@ -1529,7 +1747,7 @@ export function LivePhoneCamera({
                 </div>
               )}
 
-              {/* 3. MCD PATROL VEHICLE DASHCAM SIMULATOR */}
+              {/* 4. MCD PATROL VEHICLE DASHCAM SIMULATOR */}
               {activeMode === 'mcd_dashcam' && (
                 <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
                   <div className="flex items-center justify-between">
@@ -1577,7 +1795,7 @@ export function LivePhoneCamera({
                 </div>
               )}
 
-              {/* 4. SMARTPHONE IMU & IOT SMART LIGHTING BENCHMARK */}
+              {/* 5. SMARTPHONE IMU & IOT SMART LIGHTING BENCHMARK */}
               {activeMode === 'ml_benchmark' && (
                 <div className="space-y-3">
                   <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs space-y-2 text-xs">
@@ -1751,22 +1969,28 @@ export function LivePhoneCamera({
                     Detected Civic Anomalies ({detections.length})
                   </h3>
                   <span className="text-[10px] text-slate-500 font-mono">
-                    {detections.length > 0 ? 'REAL-TIME ACTIVE' : 'NO ANOMALIES'}
+                    {isStreaming && ipConnectStatus === 'connected' ? (detections.length > 0 ? 'ACTIVE DETECTIONS' : 'SURVEILLANCE OK') : 'STREAM OFFLINE'}
                   </span>
                 </div>
 
                 {detections.length === 0 ? (
                   <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 text-center text-xs text-slate-500 space-y-2">
                     <CheckCircle2 className="w-5 h-5 text-emerald-500 mx-auto" />
-                    <span>No civic anomalies detected in current frame.</span>
-                    <div className="pt-1">
-                      <button
-                        onClick={handleInjectTestAnomaly}
-                        className="text-[11px] text-blue-700 font-bold hover:underline cursor-pointer"
-                      >
-                        Click to test pothole anomaly detection & sound
-                      </button>
-                    </div>
+                    <span>
+                      {isStreaming && ipConnectStatus === 'connected' 
+                        ? 'No civic anomalies detected in current camera frame.' 
+                        : 'Connect a camera stream to begin real-time detection.'}
+                    </span>
+                    {isStreaming && ipConnectStatus === 'connected' && (
+                      <div className="pt-1">
+                        <button
+                          onClick={handleInjectTestAnomaly}
+                          className="text-[11px] text-blue-700 font-bold hover:underline cursor-pointer"
+                        >
+                          Click to test pothole anomaly detection & sound
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -1816,6 +2040,65 @@ export function LivePhoneCamera({
           </div>
         </div>
 
+        {/* QR CODE MOBILE PAIRING MODAL */}
+        {showQrModal && (
+          <div className="fixed inset-0 z-60 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl p-6 max-w-md w-full border border-slate-200 shadow-2xl space-y-4 text-xs">
+              <div className="flex items-center justify-between border-b border-slate-200 pb-3">
+                <div className="flex items-center gap-2">
+                  <QrCode className="w-5 h-5 text-indigo-700" />
+                  <h3 className="text-base font-bold text-slate-900 font-['Outfit']">
+                    Scan to Stream from Your Smartphone
+                  </h3>
+                </div>
+                <button onClick={() => setShowQrModal(false)} className="text-slate-500 hover:text-slate-800 cursor-pointer">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="text-center space-y-3">
+                <p className="text-xs text-slate-600">
+                  Point your iPhone or Android camera at this QR code to open Civix directly on your phone with zero app installation:
+                </p>
+
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 inline-block mx-auto shadow-inner">
+                  <img
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(mobileWebUrl)}`}
+                    alt="Mobile Pairing QR Code"
+                    className="w-44 h-44 mx-auto rounded-lg"
+                  />
+                </div>
+
+                <div className="p-3 bg-slate-100 rounded-lg text-left space-y-2">
+                  <span className="text-[11px] font-bold text-slate-700 block">Mobile Web URL:</span>
+                  <div className="flex items-center gap-2">
+                    <code className="text-blue-700 font-mono text-[11px] flex-1 truncate bg-white p-1.5 rounded border border-slate-200">
+                      {mobileWebUrl}
+                    </code>
+                    <button
+                      onClick={copyMobileLink}
+                      className="px-2.5 py-1.5 rounded bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs flex items-center gap-1 cursor-pointer shrink-0"
+                    >
+                      {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{copiedLink ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    Ensure phone is connected to the same Wi-Fi network.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowQrModal(false)}
+                className="w-full py-2.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white font-bold cursor-pointer"
+              >
+                Close QR Code
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* PHONE PAIRING & SETUP GUIDE MODAL */}
         {showPairingGuide && (
           <div className="fixed inset-0 z-60 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4">
@@ -1824,10 +2107,10 @@ export function LivePhoneCamera({
                 <div className="flex items-center gap-2">
                   <Smartphone className="w-5 h-5 text-blue-700" />
                   <h3 className="text-base font-bold text-slate-900 font-['Outfit']">
-                    How to Use Your Phone as a Live Camera
+                    How to Connect & Stream Your Phone Camera
                   </h3>
                 </div>
-                <button onClick={() => setShowPairingGuide(false)} className="text-slate-500 hover:text-slate-800">
+                <button onClick={() => setShowPairingGuide(false)} className="text-slate-500 hover:text-slate-800 cursor-pointer">
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -1836,8 +2119,8 @@ export function LivePhoneCamera({
                 <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900">
                   <strong className="block mb-1">Option A: Direct Phone Browser (Fastest — No App Needed)</strong>
                   <ol className="list-decimal list-inside space-y-1 text-[11px] text-emerald-800">
-                    <li>Connect phone to same Wi-Fi and open: <code>http://192.168.1.6:5173</code></li>
-                    <li>Tap <strong>Tab 2 (Phone / Web Camera)</strong> and allow camera access.</li>
+                    <li>Scan the QR code or open: <code>{mobileWebUrl}</code> on phone.</li>
+                    <li>Tap <strong>Tab 2 (Direct Device Camera)</strong> and allow camera access.</li>
                     <li>Flip to Rear Camera to start real-time road & civic defect scanning!</li>
                   </ol>
                 </div>
@@ -1848,7 +2131,7 @@ export function LivePhoneCamera({
                     <li>Install free <strong>IP Webcam</strong> from Google Play Store.</li>
                     <li>Ensure phone and laptop are on same Wi-Fi.</li>
                     <li>Scroll to bottom and tap <strong>Start server</strong>.</li>
-                    <li>Enter the displayed IP (e.g. <code>http://192.168.1.6:8080/video</code>) into Tab 1!</li>
+                    <li>Enter the displayed IP (e.g. <code>http://192.168.x.x:8080/video</code>) into Tab 1!</li>
                   </ol>
                 </div>
 
