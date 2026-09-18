@@ -40,7 +40,10 @@ import {
   FileVideo,
   Pause,
   RotateCcw,
-  FastForward
+  FastForward,
+  Key,
+  RadioTower,
+  SmartphoneNfc
 } from 'lucide-react';
 import { 
   detectCivicIssuesInLiveImage, 
@@ -216,18 +219,92 @@ export function LivePhoneCamera({
   const startDeviceCamera = async () => {
     stopAllStreams();
     setIpConnectStatus('testing');
-    try {
-      const constraints = {
-        video: selectedDeviceId 
-          ? { deviceId: { exact: selectedDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-          : { facingMode: cameraFacingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false
-      };
+    setIpErrorMsg('');
+    setOpticalStatus('Requesting camera lens access...');
 
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setIsStreaming(false);
+      setIpConnectStatus('error');
+      setIpErrorMsg('Camera access API (getUserMedia) is not supported in this browser or requires HTTPS / localhost.');
+      return;
+    }
+
+    let stream = null;
+    let lastError = null;
+
+    // Strategy 1: Selected Device ID (if user selected a specific lens from dropdown)
+    if (selectedDeviceId) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { ideal: selectedDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    // Strategy 2: Facing mode (environment / user) with ideal resolution
+    if (!stream) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: cameraFacingMode }, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false
+        });
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    // Strategy 3: Basic facingMode
+    if (!stream) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: cameraFacingMode },
+          audio: false
+        });
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    // Strategy 4: Simple video: true constraint (Any working camera lens)
+    if (!stream) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false
+        });
+      } catch (e) {
+        lastError = e;
+      }
+    }
+
+    if (!stream) {
+      console.warn('All camera initialization strategies failed:', lastError);
+      setIsStreaming(false);
+      setIpConnectStatus('error');
+      if (lastError?.name === 'NotAllowedError' || lastError?.name === 'PermissionDeniedError') {
+        setIpErrorMsg('Camera permission was denied. Please allow camera access in your browser address bar permissions.');
+      } else if (lastError?.name === 'NotFoundError' || lastError?.name === 'DevicesNotFoundError') {
+        setIpErrorMsg('No camera hardware found on this device.');
+      } else if (lastError?.name === 'NotReadableError' || lastError?.name === 'TrackStartError') {
+        setIpErrorMsg('Camera hardware is currently busy or in use by another application. Please close other camera apps and retry.');
+      } else {
+        setIpErrorMsg(`Could not start camera: ${lastError?.message || 'Device error'}`);
+      }
+      return;
+    }
+
+    try {
       if (videoRef.current) {
+        videoRef.current.removeAttribute('src');
         videoRef.current.srcObject = stream;
-        videoRef.current.play();
+        videoRef.current.muted = true;
+        videoRef.current.playsInline = true;
+        videoRef.current.setAttribute('playsinline', 'true');
+        videoRef.current.setAttribute('webkit-playsinline', 'true');
+        await videoRef.current.play().catch(e => console.warn('Video play warning:', e));
       }
       const track = stream.getVideoTracks()[0];
       streamTrackRef.current = track;
@@ -237,89 +314,89 @@ export function LivePhoneCamera({
         setTorchSupported(Boolean(capabilities.torch));
       }
 
+      // Re-enumerate devices now that permission is granted so device labels are available
+      try {
+        if (navigator.mediaDevices.enumerateDevices) {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const videoInputs = devices.filter(d => d.kind === 'videoinput');
+          setAvailableDevices(videoInputs);
+        }
+      } catch (e) {}
+
       setIsStreaming(true);
       setIsSampleVideoActive(false);
       setActiveStreamType('video');
       setIpConnectStatus('connected');
-      setOpticalStatus('Camera stream active');
+      setOpticalStatus('Live Phone Camera Active');
       setFps(30);
-    } catch (err) {
-      console.warn('Device camera error:', err);
-      setIsStreaming(false);
-      setIpConnectStatus('error');
-      setIpErrorMsg(err.name === 'NotAllowedError' ? 'Camera permission was denied. Please allow camera access in your browser settings.' : 'Could not start camera device.');
+      setActionSuccessMsg('Phone Camera connected and streaming live!');
+      setTimeout(() => setActionSuccessMsg(null), 3000);
+    } catch (playErr) {
+      console.warn('Video play error on live camera:', playErr);
+      setIsStreaming(true);
+      setActiveStreamType('video');
+      setIpConnectStatus('connected');
     }
   };
 
-  // Connect to Phone IP Camera Stream (Android IP Webcam / DroidCam)
+  // Connect to Phone IP Camera Stream (Android IP Webcam / DroidCam / Sample Feeds)
   const handleConnectIpCamera = () => {
     stopAllStreams();
-    const url = ipCameraUrl.trim();
-    if (!url || !url.startsWith('http')) {
+    let url = ipCameraUrl.trim();
+    if (!url) {
       setIpConnectStatus('error');
-      setIpErrorMsg('Please enter a valid HTTP stream URL (e.g. http://192.168.1.6:8080/video)');
+      setIpErrorMsg('Please enter your phone IP address (e.g. 192.168.1.6:8080/video)');
       return;
     }
 
-    setIpConnectStatus('testing');
-    setIpErrorMsg('');
-    setOpticalStatus('Pinging phone stream...');
+    // Auto-prepend http:// if omitted and not https
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = `http://${url}`;
+    }
 
-    const testImg = new Image();
-    let isHandled = false;
-
-    const timeoutId = setTimeout(() => {
-      if (!isHandled) {
-        isHandled = true;
-        setIpConnectStatus('error');
-        setIsStreaming(false);
-        setIpErrorMsg(`Cannot reach phone camera at ${url}. Ensure the IP Webcam / DroidCam app is running and your laptop & phone are on the same Wi-Fi.`);
-        setOpticalStatus('Stream unreachable');
+    // Auto-normalize IP Webcam root URL (e.g. http://192.168.1.6:8080 -> http://192.168.1.6:8080/video)
+    try {
+      const parsed = new URL(url);
+      if (parsed.port === '8080' && (!parsed.pathname || parsed.pathname === '/')) {
+        url = `${url.replace(/\/$/, '')}/video`;
+        setIpCameraUrl(url);
       }
-    }, 4500);
+    } catch (e) {}
 
-    testImg.onload = () => {
-      if (isHandled) return;
-      isHandled = true;
-      clearTimeout(timeoutId);
+    setIpErrorMsg('');
 
-      setActiveStreamType('mjpeg_img');
-      setIsStreaming(true);
-      setIsSampleVideoActive(false);
+    // If it is a direct video file (like sample videos or mp4/webm stream)
+    const isVideoFile = url.endsWith('.mp4') || url.endsWith('.webm') || url.endsWith('.mov') || url.includes('mixkit.co');
+
+    if (isVideoFile) {
       setIpConnectStatus('connected');
-      setOpticalStatus('Connected to phone IP stream (MJPEG)');
-      setFps(25);
-      setActionSuccessMsg('Connected to Phone Camera Stream successfully!');
-      setTimeout(() => setActionSuccessMsg(null), 3000);
-    };
+      setIsStreaming(true);
+      setIsSampleVideoActive(url.includes('mixkit.co'));
+      setActiveStreamType('video');
+      setOpticalStatus('Connected to video stream');
+      setFps(30);
 
-    testImg.onerror = () => {
       if (videoRef.current) {
         videoRef.current.srcObject = null;
         videoRef.current.src = url;
-        videoRef.current.play().then(() => {
-          if (isHandled) return;
-          isHandled = true;
-          clearTimeout(timeoutId);
-          setActiveStreamType('video');
-          setIsStreaming(true);
-          setIpConnectStatus('connected');
-          setOpticalStatus('Connected to phone IP video stream');
-          setFps(28);
-        }).catch(() => {
-          if (isHandled) return;
-          isHandled = true;
-          clearTimeout(timeoutId);
-          setIpConnectStatus('error');
-          setIsStreaming(false);
-          setIpErrorMsg(`Failed to connect to ${url}. Check IP address & port.`);
-          setOpticalStatus('Connection failed');
-        });
+        videoRef.current.loop = true;
+        videoRef.current.muted = true;
+        videoRef.current.play().then(() => setIsVideoPlaying(true)).catch(e => console.warn(e));
       }
-    };
+      setActionSuccessMsg('Connected to video stream successfully!');
+      setTimeout(() => setActionSuccessMsg(null), 3000);
+      return;
+    }
 
-    const testUrl = url.includes('/video') ? url.replace('/video', '/shot.jpg') : url;
-    testImg.src = `${testUrl}?t=${Date.now()}`;
+    // For Phone IP Webcam (MJPEG Stream)
+    setIpConnectStatus('connected');
+    setIsStreaming(true);
+    setIsSampleVideoActive(false);
+    setActiveStreamType('mjpeg_img');
+    setOpticalStatus('Connecting to Phone IP Camera...');
+    setFps(25);
+    setActionSuccessMsg('Phone IP Camera stream initiated!');
+    setTimeout(() => setActionSuccessMsg(null), 3000);
   };
 
   // Format seconds into MM:SS
@@ -1089,12 +1166,22 @@ export function LivePhoneCamera({
                 className={`w-full h-full object-contain ${activeStreamType === 'video' && isStreaming ? 'block' : 'hidden'}`}
               />
 
-              {/* MJPEG Image Stream */}
+              {/* MJPEG Image Stream (No crossOrigin="anonymous" to ensure local phone IP servers render smoothly) */}
               <img
                 ref={ipImageRef}
                 alt="Phone IP Stream"
-                crossOrigin="anonymous"
                 src={isStreaming && activeStreamType === 'mjpeg_img' ? ipCameraUrl : ''}
+                onLoad={() => {
+                  setIpConnectStatus('connected');
+                  setOpticalStatus('Connected to phone IP stream (MJPEG)');
+                }}
+                onError={() => {
+                  if (activeStreamType === 'mjpeg_img' && isStreaming) {
+                    setIpConnectStatus('error');
+                    setOpticalStatus('Phone stream unreachable');
+                    setIpErrorMsg(`Unable to reach phone stream at ${ipCameraUrl}. Please check that the IP Webcam app is running ("Start server") and both devices are on the same Wi-Fi.`);
+                  }
+                }}
                 className={`w-full h-full object-contain ${activeStreamType === 'mjpeg_img' && isStreaming ? 'block' : 'hidden'}`}
               />
 
@@ -1264,8 +1351,12 @@ export function LivePhoneCamera({
                       onChange={(e) => {
                         setSelectedPreset(e.target.value);
                         const preset = IP_CAMERA_PRESETS.find(p => p.id === e.target.value);
-                        if (preset && preset.defaultPort) {
-                          setIpCameraUrl(`http://192.168.1.6:${preset.defaultPort}${preset.videoPath}`);
+                        if (preset) {
+                          if (preset.defaultPort) {
+                            setIpCameraUrl(`http://192.168.1.6:${preset.defaultPort}${preset.videoPath}`);
+                          } else if (preset.videoPath) {
+                            setIpCameraUrl(preset.videoPath);
+                          }
                         }
                       }}
                       className="w-full text-xs p-2 rounded-lg border border-slate-300 bg-slate-50 font-medium text-slate-800 focus:outline-blue-600"
@@ -1335,7 +1426,10 @@ export function LivePhoneCamera({
 
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setCameraFacingMode(cameraFacingMode === 'environment' ? 'user' : 'environment')}
+                      onClick={() => {
+                        setCameraFacingMode(prev => prev === 'environment' ? 'user' : 'environment');
+                        setSelectedDeviceId('');
+                      }}
                       className="flex-1 py-2 rounded-lg border border-slate-300 hover:bg-slate-100 text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5 cursor-pointer"
                     >
                       <RefreshCw className="w-3.5 h-3.5 text-blue-600" />
