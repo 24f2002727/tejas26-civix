@@ -44,16 +44,6 @@ export function Navbar({
 
           {/* Right Action Bar: Live AI Camera Launcher + Navigation Tabs */}
           <div className="flex items-center gap-2.5">
-            {/* Live Camera & MCD Fleet Trigger */}
-            <button
-              onClick={() => onOpenLiveCam && onOpenLiveCam('ip_stream')}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-xs font-bold transition-all cursor-pointer shadow-xs"
-              title="Open Live Phone IP Camera & MCD Dashcam Sentinel"
-            >
-              <span className="w-2 h-2 rounded-full bg-red-600 live-pulse"></span>
-              <span className="hidden sm:inline">Live AI Camera</span>
-              <span className="sm:hidden">Live Cam</span>
-            </button>
 
             {/* 4 Main Role-Based Navigation Tabs */}
             <nav className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">

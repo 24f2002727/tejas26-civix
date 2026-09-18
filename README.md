@@ -36,9 +36,30 @@
 ## 🛠️ Technology Stack
 
 - **Frontend**: React 18, Vite 6, Tailwind CSS v4
+- **Database & Realtime**: Supabase (PostgreSQL + PostGIS + Realtime WebSockets + Storage Bucket)
+- **Local Fallback**: Browser IndexedDB & LocalStorage Data Lake
+- **AI Models**: Google Gemini Multimodal Vision, Edge YOLOv12 Optical Feature Extraction
 - **Icons & UI**: Lucide React, Canvas Confetti
 - **Mapping & GIS**: Leaflet & CartoDB Positron
 - **Theme**: Institutional White & Royal Blue Government Portal Aesthetic
+
+---
+
+## 🗄️ Supabase Cloud Database Setup (1-Click)
+
+1. Create a free project at [supabase.com](https://supabase.com/).
+2. Go to **SQL Editor** in your Supabase Dashboard.
+3. Paste and run [`supabase/schema.sql`](file:///Users/shivamkumar/Desktop/projects/tejas26-civix/supabase/schema.sql). This will automatically create:
+   - All 8 database tables (`clusters`, `citizen_reports`, `verification_queue`, `cameras`, `mcd_vehicles`, `audit_logs`, `user_profile`, `departments`).
+   - Row Level Security (RLS) public read/write access policies.
+   - Realtime WebSocket publication subscriptions.
+   - `civiceye-media` public storage bucket for photos and videos.
+   - Initial seed municipal datasets.
+4. Copy your **Project URL** and **Anon Key** into `.env` (or configure directly in the UI via the **System API Settings** modal):
+   ```env
+   VITE_SUPABASE_URL=https://your-project-id.supabase.co
+   VITE_SUPABASE_ANON_KEY=your_anon_key
+   ```
 
 ---
 
